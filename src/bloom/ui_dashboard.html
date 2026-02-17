@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bloom Dashboard</title>
+  <style>
+    body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; margin:0; background:#f3f4f6; color:#111827; }
+    .wrap { max-width: 1320px; margin: 0 auto; padding: 16px; }
+    .card { background:white; border-radius:14px; padding:14px; box-shadow:0 4px 18px rgba(0,0,0,.06); }
+    .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:10px; flex-wrap:wrap; }
+    .tabs { display:flex; gap:8px; flex-wrap:wrap; }
+    .tab,.btn { border:0; background:#e5e7eb; border-radius:18px; padding:8px 14px; cursor:pointer; }
+    .tab.active { background:#111827; color:#fff; }
+    .btn.primary { background:#2563eb; color:#fff; }
+    .layout { display:grid; grid-template-columns: 1.4fr 1fr; gap:12px; }
+    .stack { display:grid; gap:12px; }
+    .muted { color:#6b7280; font-size:12px; }
+    #mainChart { width:100%; height:220px; }
+
+    .master-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #eef2f7; }
+    .name { font-weight:700; }
+    .badge { font-size:11px; padding:2px 8px; border-radius:12px; background:#eef2ff; margin-left:5px; }
+
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th, td { border-bottom:1px solid #eef2f7; padding:8px; text-align:right; white-space:nowrap; }
+    th:first-child, td:first-child, th:nth-child(2), td:nth-child(2), th:nth-child(3), td:nth-child(3) { text-align:left; }
+    th { background:#f8fafc; position:sticky; top:0; z-index:1; }
+    .ok { color:#059669; font-weight:700; }
+    .fail { color:#be123c; font-weight:700; }
+    .warn-row { background:#fff1f2; }
+    .warn-text { color:#be123c; font-weight:700; }
+    .scroll { max-height:380px; overflow:auto; }
+    @media (max-width:1000px){ .layout { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h2>급전지시 대시보드 (준중앙/비중앙 분리 로직)</h2>
+    <div class="tabs">
+      <button class="tab active" data-group="전체">전체</button>
+      <button class="tab" data-group="준중앙">준중앙</button>
+      <button class="tab" data-group="비중앙">비중앙</button>
+      <button class="btn primary" id="startSessionBtn">프로그램 시작(시초기록)</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="stack">
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+          <strong id="selectedTitle">실시간 발전량 그래프</strong>
+          <span class="muted" id="sessionState">시초기록: 미시작</span>
+        </div>
+        <canvas id="mainChart" width="780" height="220"></canvas>
+      </div>
+
+      <div class="card">
+        <strong>핵심 수치표 (준중앙: min/max±5%, 비중앙: target% 시간 내 도달)</strong>
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Site ID</th><th>구분</th><th>판정</th>
+                <th>Nameplate</th><th>제출</th><th>시초</th><th>시초-제출편차</th>
+                <th>Min</th><th>Min/제출</th><th>Min/시초</th>
+                <th>Max</th><th>Max/제출</th><th>Max/시초</th>
+                <th>Min T(분)</th><th>Max T(분)</th><th>Target%</th><th>Target kW</th><th>Target/Nameplate</th><th>제한시간(분)</th>
+              </tr>
+            </thead>
+            <tbody id="metricsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <strong>현장 장바구니 (+ 활성화)</strong>
+      <div class="muted">준중앙: min/max + (토글) minT/maxT, 비중앙: target%(0/40/60)+제한시간</div>
+      <div id="masterList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentGroup = '전체';
+let selectedSite = null;
+
+const num = (v)=> (v == null ? '-' : Number(v).toLocaleString('ko-KR'));
+const pct = (v)=> v == null || Number.isNaN(v) ? '-' : `${v.toFixed(1)}%`;
+
+function drawLine(canvas, values, color='#2563eb'){
+  const c = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  c.clearRect(0,0,w,h);
+  if(values.length<2) return;
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = (max-min)||1;
+  c.strokeStyle = color; c.lineWidth = 2; c.beginPath();
+  values.forEach((v,i)=>{
+    const x = (i/(values.length-1))*w;
+    const y = h - ((v-min)/range)*(h-12)-6;
+    i===0 ? c.moveTo(x,y) : c.lineTo(x,y);
+  });
+  c.stroke();
+}
+
+async function getJson(url, options){
+  const r = await fetch(url, options);
+  if(!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function loadMasterSites(){
+  return (await getJson(`/api/master-sites?group=${encodeURIComponent(currentGroup)}`)).items;
+}
+async function loadSites(){
+  return (await getJson(`/api/sites?group=${encodeURIComponent(currentGroup)}`)).items;
+}
+async function loadSeries(siteId){
+  return (await getJson(`/api/series/${siteId}?points=40`)).points.map(p=>p.kw);
+}
+
+async function activatePrompt(site){
+  const submitted = prompt(`${site.site_id} 고객 제출 출력(kW)`, '17000');
+  if(submitted === null) return;
+
+  let payload = { site_id: site.site_id, submitted_output_kw: Number(submitted) };
+  if(site.group_type === '준중앙'){
+    const minPower = prompt(`${site.site_id} 제출 최소 출력(min kW)`, '10200');
+    if(minPower === null) return;
+    const maxPower = prompt(`${site.site_id} 제출 최대 출력(max kW)`, '17000');
+    if(maxPower === null) return;
+
+    const enableTime = confirm(`${site.site_id} 준중앙 target time을 사용할까요? (확인=사용, 취소=미사용)`);
+    let minTarget = null;
+    let maxTarget = null;
+    if (enableTime) {
+      minTarget = prompt(`${site.site_id} min 도달 target time(분)`, '20');
+      if(minTarget === null) return;
+      maxTarget = prompt(`${site.site_id} max 도달 target time(분)`, '40');
+      if(maxTarget === null) return;
+    }
+
+    payload = {
+      ...payload,
+      min_power_kw: Number(minPower),
+      max_power_kw: Number(maxPower),
+      semi_target_enabled: enableTime,
+      min_target_minutes: enableTime ? Number(minTarget) : null,
+      max_target_minutes: enableTime ? Number(maxTarget) : null,
+    };
+  } else {
+    const targetPct = prompt(`${site.site_id} 목표 최소출력 target%(0/40/60)`, '40');
+    if(targetPct === null) return;
+    const deadlineMinutes = prompt(`${site.site_id} 제한 시간(분)`, '30');
+    if(deadlineMinutes === null) return;
+    payload = {...payload, target_pct: Number(targetPct), deadline_minutes: Number(deadlineMinutes)};
+  }
+
+  await getJson('/api/sites/activate', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+  });
+  await renderAll();
+}
+
+async function renderMasterList(){
+  const rows = await loadMasterSites();
+  const wrap = document.getElementById('masterList');
+  wrap.innerHTML = '';
+  rows.forEach(site=>{
+    const row = document.createElement('div');
+    row.className='master-row';
+    row.innerHTML = `<div><div class="name">${site.site_name}<span class="badge">${site.site_id}</span></div><div class="muted">${site.group_type} · Nameplate ${num(site.nameplate_kw)}kW</div></div>`;
+    const btn = document.createElement('button');
+    btn.className='btn';
+    btn.textContent = site.is_active ? '활성됨' : '+ 추가';
+    btn.disabled = site.is_active;
+    if(!site.is_active) btn.onclick = ()=>activatePrompt(site);
+    row.appendChild(btn);
+    wrap.appendChild(row);
+  })
+}
+
+function verdictCell(site){
+  if(site.mode === 'semi-central'){
+    if(site.semi_target_enabled){
+    return site.semi_success ? '<span class="ok">성공(min/max 시간내)</span>' : '<span class="fail">실패(min/max 시간초과)</span>';
+  }
+  return site.semi_success ? '<span class="ok">성공(±5% 내)</span>' : '<span class="fail">실패(±5% 이탈)</span>';
+  }
+  if(site.mode === 'non-central'){
+    if(site.within_deadline === true) return '<span class="ok">성공(시간 내 도달)</span>';
+    if(site.within_deadline === false) return '<span class="fail">미도달/시간초과</span>';
+    return '<span class="muted">대기(세션 미시작)</span>';
+  }
+  return '-';
+}
+
+async function renderTable(){
+  const sites = await loadSites();
+  const tbody = document.getElementById('metricsBody');
+  tbody.innerHTML = '';
+  if(!sites.length){
+    tbody.innerHTML = '<tr><td colspan="19" class="muted">활성화된 현장이 없습니다.</td></tr>';
+    return;
+  }
+  if(!selectedSite || !sites.find(s=>s.site_id===selectedSite)) selectedSite = sites[0].site_id;
+
+  for(const s of sites){
+    const tr = document.createElement('tr');
+    if (s.open_gap_alert) tr.classList.add('warn-row');
+    tr.innerHTML = `
+      <td><strong>${s.site_id}</strong></td>
+      <td>${s.group_type}</td>
+      <td>${verdictCell(s)}</td>
+      <td>${num(s.nameplate_kw)}</td>
+      <td>${num(s.submitted_output_kw)}</td>
+      <td>${num(s.open_output_kw)}</td>
+      <td class="${s.open_gap_alert ? 'warn-text' : ''}">${pct(s.open_gap_diff_pct)}</td>
+      <td>${num(s.min_power_kw)}</td>
+      <td>${pct(s.min_vs_submitted_pct)}</td>
+      <td>${pct(s.min_vs_open_pct)}</td>
+      <td>${num(s.max_power_kw)}</td>
+      <td>${pct(s.max_vs_submitted_pct)}</td>
+      <td>${pct(s.max_vs_open_pct)}</td>
+      <td>${s.min_target_minutes ?? '-'}</td>
+      <td>${s.max_target_minutes ?? '-'}</td>
+      <td>${s.target_pct ?? '-'}</td>
+      <td>${num(s.target_kw)}</td>
+      <td>${pct(s.target_vs_nameplate_pct)}</td>
+      <td>${s.deadline_minutes ?? '-'}</td>
+    `;
+    tr.style.cursor='pointer';
+    tr.onclick = ()=>{ selectedSite = s.site_id; renderChart(); };
+    tbody.appendChild(tr);
+  }
+}
+
+async function renderChart(){
+  if(!selectedSite) return;
+  const values = await loadSeries(selectedSite);
+  drawLine(document.getElementById('mainChart'), values);
+  document.getElementById('selectedTitle').textContent = `${selectedSite} 실시간 발전량 그래프`;
+}
+
+async function renderSessionState(){
+  const status = await getJson('/api/session/status');
+  const el = document.getElementById('sessionState');
+  if(status.started_at){
+    el.textContent = `시초기록 진행중 (${new Date(status.started_at).toLocaleTimeString()})`;
+    el.classList.add('ok');
+  } else {
+    el.textContent = '시초기록: 미시작';
+    el.classList.remove('ok');
+  }
+}
+
+async function renderAll(){
+  await renderMasterList();
+  await renderSessionState();
+  await renderTable();
+  await renderChart();
+}
+
+document.querySelectorAll('.tab').forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    currentGroup = btn.dataset.group;
+    selectedSite = null;
+    renderAll();
+  }
+});
+
+document.getElementById('startSessionBtn').onclick = async ()=>{
+  await getJson('/api/session/start', {method:'POST'});
+  await renderAll();
+};
+
+renderAll();
+setInterval(renderChart, 10000);
+</script>
+</body>
+</html>

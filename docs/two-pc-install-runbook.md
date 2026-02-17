@@ -1,0 +1,255 @@
+# 2대 PC 운영 설치 순서 (현재 PC=사용자 시운전, VPN PC=중앙 서버)
+
+요구사항: 현재 PC에서는 사내 VPN 불가, VPN 가능한 다른 PC가 서버 역할 수행.
+
+---
+
+## 🧒 완전 초보(처음 프로그래밍)용 한 줄 요약
+- **서버 PC**는 "데이터를 모으는 컴퓨터"예요.
+- **사용자 PC**는 "화면만 보는 컴퓨터"예요.
+- 즉, 중요한 설치는 서버 PC에서 먼저 합니다.
+
+---
+
+## 🔍 "어디서, 어떻게 확인해요?" 빠른 확인표
+| 확인할 것 | 어디서 확인? | 확인 방법 |
+|---|---|---|
+| 서버 프로그램이 켜졌는지 | 서버 PC 터미널 | `curl http://127.0.0.1:8000/health` |
+| 사이트 목록이 내려오는지 | 서버 PC 터미널 | `curl http://127.0.0.1:8000/api/master-sites` |
+| 대시보드 화면이 뜨는지 | 서버 PC 브라우저 | `http://127.0.0.1:8000/dashboard` 접속 |
+| 다른 PC에서도 접속되는지 | 사용자 PC 브라우저 | `http://<서버IP>:8000/dashboard` 접속 |
+| DB 컨테이너가 살아있는지 | 서버 PC 터미널 | `docker compose ps`에서 `db`가 `Up`인지 확인 |
+| 서버 로그가 정상인지 | 서버 PC 터미널 | `journalctl -u bloom -f` (systemd 사용 시) |
+
+> 딱 3개만 먼저 보면 됩니다: `health`, `master-sites`, `dashboard`.
+
+---
+
+## 0) 준비물 체크 (먼저 이것부터)
+서버 PC 앞에 앉아서 아래 4개를 준비해 주세요.
+
+1. 인터넷 연결
+2. 사내 VPN 연결 가능 상태
+3. 설치 권한(관리자 권한) 있는 계정
+4. 이 프로젝트의 Git 저장소 주소(예: `https://...`)
+
+---
+
+## 1) 서버 PC에 프로그램 설치하기 (정말 천천히)
+
+> 아래는 **Ubuntu/Linux 기준**입니다.  
+> (만약 Windows 서버라면, 마지막에 "Windows 메모"를 참고하세요.)
+
+### 1-1. 터미널 열기
+- 키보드에서 `Ctrl + Alt + T`를 눌러 터미널을 엽니다.
+
+### 1-2. Git / Python / Docker 설치
+아래 명령을 **한 줄씩** 복사해서 실행하세요.
+
+```bash
+sudo apt update
+sudo apt install -y git python3 python3-venv python3-pip docker.io docker-compose-plugin
+```
+
+설치 확인:
+
+```bash
+git --version
+python3 --version
+docker --version
+docker compose version
+```
+
+### 1-3. Docker 실행 준비
+```bash
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+```
+
+- 위 2번째 명령을 실행하면 권한이 바뀝니다.
+- **중요:** 터미널을 닫고 다시 열거나, 서버 PC를 한 번 재로그인하세요.
+
+확인:
+```bash
+docker ps
+```
+
+### 1-4. 프로젝트 받기 (clone)
+`<repo_url>` 자리에 실제 주소를 넣으세요.
+
+```bash
+git clone <repo_url> Bloom
+cd Bloom
+```
+
+### 1-5. 파이썬 가상환경 만들기
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+성공하면 터미널 왼쪽에 `(.venv)`가 보입니다.
+
+### 1-6. 프로젝트 의존성 설치
+```bash
+pip install -e .
+cp .env.example .env
+```
+
+### 1-7. 데이터베이스(DB) 실행
+```bash
+docker compose up -d db
+docker compose ps
+```
+
+- `db`가 `Up`으로 보이면 성공입니다.
+
+### 1-8. 서버 실행
+```bash
+source .venv/bin/activate
+uvicorn bloom.main:app --host 0.0.0.0 --port 8000
+```
+
+- 이 명령을 실행하면 서버가 켜진 상태로 계속 떠 있습니다.
+- 이 창은 닫지 마세요(닫으면 서버도 꺼짐).
+
+---
+
+## 2) 서버 PC에서 "정상 동작" 확인
+서버 PC에서 새 터미널을 하나 더 열고 아래를 실행하세요.
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/api/master-sites
+```
+
+정상이면:
+- `/health`는 `{"status":"ok", ...}` 비슷한 JSON이 나옵니다.
+- `/api/master-sites`는 site 목록 JSON이 나옵니다.
+
+브라우저 확인:
+- 서버 PC 브라우저에서 `http://127.0.0.1:8000/dashboard`
+
+---
+
+## 3) 사용자 PC에서 접속하기
+
+### 3-1. 서버 IP 확인 (서버 PC에서)
+```bash
+hostname -I
+```
+
+예: `10.20.30.40` 같은 값이 나옵니다.
+
+### 3-2. 사용자 PC에서 브라우저 열기
+아래 주소로 접속:
+
+- `http://<서버IP>:8000/dashboard`
+- 예: `http://10.20.30.40:8000/dashboard`
+
+### 3-3. 화면 테스트 순서
+1. `+추가` 버튼으로 site 활성화
+2. 제출/최소/최대 값 입력
+3. `프로그램 시작(시초기록)` 클릭
+4. 그래프와 표가 보이는지 확인
+5. 시초-제출 편차 10% 이상이면 빨간 강조가 뜨는지 확인
+
+---
+
+## 4) 매일 켜두기(운영용) - 추천: systemd
+테스트가 끝나면 자동실행으로 바꾸는 걸 추천합니다.
+
+### 4-1. 서비스 파일 만들기
+```bash
+sudo nano /etc/systemd/system/bloom.service
+```
+
+아래 내용 붙여넣기(경로/사용자명은 본인 환경에 맞게 수정):
+
+```ini
+[Unit]
+Description=Bloom FastAPI
+After=network.target docker.service
+
+[Service]
+WorkingDirectory=/home/<USER>/Bloom
+Environment="PATH=/home/<USER>/Bloom/.venv/bin"
+ExecStart=/home/<USER>/Bloom/.venv/bin/uvicorn bloom.main:app --host 0.0.0.0 --port 8000
+Restart=always
+User=<USER>
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 4-2. 적용
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable bloom
+sudo systemctl start bloom
+sudo systemctl status bloom
+```
+
+로그 보기:
+```bash
+journalctl -u bloom -f
+```
+
+---
+
+## 5) 서버 업데이트(코드 바뀌었을 때)
+서버 PC에서:
+
+```bash
+cd ~/Bloom
+git pull
+source .venv/bin/activate
+pip install -e .
+sudo systemctl restart bloom
+sudo systemctl status bloom
+```
+
+---
+
+## 6) 제일 자주 막히는 문제 6개
+
+1. **`No module named uvicorn`**
+   - `source .venv/bin/activate`
+   - `pip install -e .`
+
+2. **사용자 PC에서 접속 안 됨**
+   - 서버에서 앱 실행 중인지 확인
+   - 서버 방화벽에서 8000 포트 허용 확인
+
+3. **DB 연결 실패**
+   - `docker compose ps`에서 `db` 상태 확인
+
+4. **docker 권한 에러**
+   - `sudo usermod -aG docker $USER` 후 재로그인
+
+5. **VPN 끊김**
+   - Webview 수집 중단될 수 있음
+   - VPN 자동재연결/알람 필요
+
+6. **서버 재부팅 후 앱 미기동**
+   - `systemd` 설정했는지 확인
+   - `sudo systemctl status bloom`
+
+---
+
+## 7) 업데이트 주기(권장)
+- 기본: 60초
+- 급전지시 시간대: 10~30초
+- 비상/짧은 시운전: 5~10초(한시적)
+
+`CRAWL_INTERVAL_SECONDS`로 조절합니다.
+
+---
+
+## 8) Windows 서버를 쓰는 경우 메모
+- PowerShell 기준으로 진행
+- Python, Git, Docker Desktop 먼저 설치
+- 가상환경 활성화 명령이 다릅니다:
+  - `python -m venv .venv`
+  - `.venv\Scripts\activate`
+- 나머지 순서는 동일합니다(클론 → 의존성 → DB → uvicorn 실행)

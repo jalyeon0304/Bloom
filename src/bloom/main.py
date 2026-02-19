@@ -3,9 +3,10 @@ import json
 from pathlib import Path
 from secrets import token_urlsafe
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from bloom.config import settings
@@ -47,9 +48,40 @@ class SiteActivationIn(BaseModel):
     max_target_minutes: int | None = Field(default=None, gt=0)
 
 
+class SchedulePatchIn(BaseModel):
+    site_id: str
+    field: str
+    value: str
+    user: str | None = None
+
+
 # demo purpose only: in-memory store (replace with DB/Redis in production)
 _pending_login_requests: dict[str, dict] = {}
 _session_tokens: dict[str, dict] = {}
+
+_SCHEDULE_ROWS: list[dict[str, str]] = [
+    {"site_id": "SKK167", "field": "target_kw", "value": "12000", "status": "active"},
+    {"site_id": "SKK046", "field": "min_power_kw", "value": "10200", "status": "active"},
+    {"site_id": "KMP000", "field": "target_kw", "value": "2400", "status": "cancel"},
+]
+_SCHEDULE_LOGS: list[str] = []
+
+
+def _role_guard(x_role: str | None, allowed: set[str]) -> str:
+    role = (x_role or "Viewer").strip()
+    if role not in allowed:
+        raise HTTPException(status_code=403, detail="forbidden")
+    return role
+
+
+def _now_kst() -> datetime:
+    return datetime.now(tz=ZoneInfo("Asia/Seoul"))
+
+
+def _make_logline(site_id: str, field: str, old: str, new: str, user: str | None) -> str:
+    stamp = _now_kst().strftime("%H:%M:%S")
+    who = user or "unknown"
+    return f"[{stamp}] {site_id} {field} : {old} → {new} (user:{who})"
 
 
 @app.get("/health")
@@ -104,7 +136,9 @@ def api_series(site_id: str, points: int = Query(default=30, ge=10, le=180)) -> 
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard() -> str:
+def dashboard(mock: int = Query(default=0)) -> str:
+    if mock == 1:
+        return ui_kit()
     html_path = Path(__file__).with_name("ui_dashboard.html")
     return html_path.read_text(encoding="utf-8")
 
@@ -123,6 +157,69 @@ def summary_preview(mock: int = Query(default=0)) -> str:
     if mock == 1:
         return ui_kit()
     return dashboard()
+
+
+
+
+@app.get("/api/meta")
+def api_meta() -> dict:
+    now = _now_kst()
+    return {"timezone": "Asia/Seoul", "kst_date": now.strftime("%Y-%m-%d"), "generated_at": now.isoformat()}
+
+
+@app.get("/api/summary")
+def api_summary(state: str = Query(default="normal")) -> dict:
+    fixture_path = Path(__file__).parents[2] / "docs" / "ui" / "fixtures" / "summary.sample.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+    sites = [
+        {"site_id": "SKK046", "group": "준중앙", "active": True, "capacity_kw": 19800},
+        {"site_id": "SKK056", "group": "준중앙", "active": True, "capacity_kw": 8910},
+        {"site_id": "SKK167", "group": "준중앙", "active": True, "capacity_kw": 39600},
+        {"site_id": "KMP000", "group": "비중앙", "active": False, "capacity_kw": 6000},
+        {"site_id": "SKK000", "group": "비중앙", "active": True, "capacity_kw": 19800},
+    ]
+    if state == "high-capacity-active":
+        payload["summary"]["nameplate_kw"] = 39600
+        payload["summary"]["current_output_kw"] = 35200
+    if state == "empty":
+        payload["series"] = []
+        payload["table"] = []
+    return {**payload, "sites": sites, "table": _SCHEDULE_ROWS, "logs": _SCHEDULE_LOGS[:50]}
+
+
+@app.patch("/api/schedule")
+def api_patch_schedule(payload: SchedulePatchIn, x_role: str | None = Header(default=None)) -> dict:
+    _role_guard(x_role, {"Operator"})
+    target = next((r for r in _SCHEDULE_ROWS if r["site_id"] == payload.site_id and r["field"] == payload.field), None)
+    if not target:
+        target = {"site_id": payload.site_id, "field": payload.field, "value": "", "status": "active"}
+        _SCHEDULE_ROWS.append(target)
+    old = target["value"]
+    target["value"] = payload.value
+    if payload.field == "cancel":
+        target["status"] = "cancel"
+    log_line = _make_logline(payload.site_id, payload.field, old, payload.value, payload.user)
+    _SCHEDULE_LOGS.insert(0, log_line)
+    return {
+        "ok": True,
+        "site_id": payload.site_id,
+        "field": payload.field,
+        "old": old,
+        "new": payload.value,
+        "logLine": log_line,
+        "saved_at": _now_kst().isoformat(),
+    }
+
+
+@app.get("/api/export.xlsx")
+def api_export_xlsx(x_role: str | None = Header(default=None)) -> Response:
+    _role_guard(x_role, {"Operator"})
+    lines = ["site_id,field,value,status"] + [
+        f'{r["site_id"]},{r["field"]},{r["value"]},{r["status"]}' for r in _SCHEDULE_ROWS
+    ]
+    body = "\n".join(lines).encode("utf-8")
+    headers = {"Content-Disposition": "attachment; filename=summary_export.xlsx"}
+    return Response(content=body, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
 
 @app.post("/api/auth/login-request")

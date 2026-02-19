@@ -64,3 +64,23 @@ Summary mock은 `docs/ui/fixtures/summary.sample.json` fixture를 사용하므�
 - 2대 PC 설치/시운전 런북: `docs/two-pc-install-runbook.md` ("어디서, 어떻게 확인" 빠른 확인표 포함)
 - 서버/사용자 PC 구동 모습 가이드: `docs/server-vs-user-runtime.md`
 - 운영 전 빈부분 체크리스트: `docs/production-gap-checklist.md`
+
+
+## PR 단위 실행/검증 메모
+- **PR0 (문서만)**
+  - `docs/ui/SUMMARY_PAGE_SPEC.md`, `docs/api/API_CONTRACT.md` 확인
+- **PR1 (mock 미리보기)**
+  - 서버 실행 후 `http://127.0.0.1:8000/ui-kit` 또는 `http://127.0.0.1:8000/dashboard?mock=1` 접속
+  - 상태 토글 4개(`loading/empty/normal/high-capacity-active`) 확인
+- **PR2 (차트/필터)**
+  - X축 09:00~17:00 고정, 1h 라벨/10min 그리드 확인
+  - Y축 max가 active capacity 만단위 올림인지 확인
+  - 툴팁 2줄(`HH:mm`, `siteId · kW (tmo%)`) 확인
+  - 그룹/사이트 체크박스 tri-state 동작 확인
+- **PR3 (테이블 인라인 편집)**
+  - value 셀에서 Enter 입력 시 `Saved ✓`(약 1~1.5초) + 셀 하이라이트 확인
+  - 로그 포맷 `[HH:mm:ss] ...` 확인
+- **PR4 (API)**
+  - `GET /api/meta`, `GET /api/summary` 확인
+  - `PATCH /api/schedule`와 `GET /api/export.xlsx`는 `X-Role: Operator`에서만 성공 확인
+

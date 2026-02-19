@@ -5,7 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bloom Dashboard</title>
   <style>
-    body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; margin:0; background:#f3f4f6; color:#111827; }
+    :root {
+      --color-bg: #f3f4f6;
+      --color-text: #111827;
+      --color-muted: #6b7280;
+      --color-grid-major: #e5e7eb;
+      --color-axis: #9ca3af;
+      --color-series: #2563eb;
+      --color-tooltip-bg: rgba(17,24,39,0.92);
+      --color-tooltip-text: #ffffff;
+    }
+    body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; margin:0; background:var(--color-bg); color:var(--color-text); }
     .wrap { max-width: 1320px; margin: 0 auto; padding: 16px; }
     .card { background:white; border-radius:14px; padding:14px; box-shadow:0 4px 18px rgba(0,0,0,.06); }
     .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:10px; flex-wrap:wrap; }
@@ -15,8 +25,23 @@
     .btn.primary { background:#2563eb; color:#fff; }
     .layout { display:grid; grid-template-columns: 1.4fr 1fr; gap:12px; }
     .stack { display:grid; gap:12px; }
-    .muted { color:#6b7280; font-size:12px; }
+    .muted { color:var(--color-muted); font-size:12px; }
     #mainChart { width:100%; height:220px; }
+
+    .chart-wrap { position: relative; }
+    .chart-tooltip {
+      position: absolute;
+      display: none;
+      pointer-events: none;
+      background: var(--color-tooltip-bg);
+      color: var(--color-tooltip-text);
+      font-size: 11px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      transform: translate(8px, -110%);
+      white-space: nowrap;
+      z-index: 2;
+    }
 
     .master-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #eef2f7; }
     .name { font-weight:700; }
@@ -53,7 +78,7 @@
           <strong id="selectedTitle">실시간 발전량 그래프</strong>
           <span class="muted" id="sessionState">시초기록: 미시작</span>
         </div>
-        <canvas id="mainChart" width="780" height="220"></canvas>
+        <div class="chart-wrap"><canvas id="mainChart" width="780" height="220"></canvas><div id="chartTooltip" class="chart-tooltip"></div></div>
       </div>
 
       <div class="card">
@@ -90,20 +115,109 @@ let selectedSite = null;
 const num = (v)=> (v == null ? '-' : Number(v).toLocaleString('ko-KR'));
 const pct = (v)=> v == null || Number.isNaN(v) ? '-' : `${v.toFixed(1)}%`;
 
-function drawLine(canvas, values, color='#2563eb'){
+const chartState = { points: [], rect: null, canvas: null };
+
+function drawLine(canvas, points, color=getComputedStyle(document.documentElement).getPropertyValue('--color-series').trim()){
   const c = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
   c.clearRect(0,0,w,h);
-  if(values.length<2) return;
-  const min = Math.min(...values), max = Math.max(...values);
-  const range = (max-min)||1;
-  c.strokeStyle = color; c.lineWidth = 2; c.beginPath();
-  values.forEach((v,i)=>{
-    const x = (i/(values.length-1))*w;
-    const y = h - ((v-min)/range)*(h-12)-6;
+  if(points.length<2) return;
+
+  const yMin = 0;
+  const yMax = 40000;
+  const yMajor = 10000;
+
+  const left = 56;
+  const right = 12;
+  const top = 10;
+  const bottom = 28;
+  const pw = w - left - right;
+  const ph = h - top - bottom;
+
+  const toY = (v)=> top + (1 - (v - yMin) / (yMax - yMin)) * ph;
+  const toX = (i)=> left + (i / (points.length - 1)) * pw;
+
+  const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--color-grid-major').trim();
+  const axisColor = getComputedStyle(document.documentElement).getPropertyValue('--color-axis').trim();
+  const mutedColor = getComputedStyle(document.documentElement).getPropertyValue('--color-muted').trim();
+
+  c.font = '11px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif';
+  c.fillStyle = mutedColor;
+  c.textAlign = 'right';
+  c.textBaseline = 'middle';
+
+  for(let y = yMin; y <= yMax; y += yMajor){
+    const py = toY(y);
+    c.strokeStyle = gridColor;
+    c.lineWidth = 1;
+    c.beginPath();
+    c.moveTo(left, py);
+    c.lineTo(w-right, py);
+    c.stroke();
+    c.fillText(`${(y/1000).toFixed(0)}k`, left - 8, py);
+  }
+
+  c.textAlign = 'center';
+  c.textBaseline = 'top';
+  points.forEach((p, i)=>{
+    const d = new Date(p.measured_at);
+    const minute = d.getMinutes();
+    const hour = d.getHours();
+    const isMajor = minute === 0;
+    const isMinor = minute % 10 === 0;
+    if(!isMinor) return;
+
+    const x = toX(i);
+    const tickLen = isMajor ? 6 : 3;
+    c.strokeStyle = axisColor;
+    c.beginPath();
+    c.moveTo(x, h-bottom);
+    c.lineTo(x, h-bottom + tickLen);
+    c.stroke();
+
+    if(isMajor){
+      c.strokeStyle = gridColor;
+      c.beginPath();
+      c.moveTo(x, top);
+      c.lineTo(x, h-bottom);
+      c.stroke();
+      c.fillText(`${String(hour).padStart(2,'0')}:00`, x, h-bottom + 8);
+    }
+  });
+
+  c.strokeStyle = axisColor;
+  c.lineWidth = 1;
+  c.beginPath();
+  c.moveTo(left, top);
+  c.lineTo(left, h-bottom);
+  c.lineTo(w-right, h-bottom);
+  c.stroke();
+
+  c.save();
+  c.fillStyle = mutedColor;
+  c.textAlign = 'center';
+  c.textBaseline = 'top';
+  c.fillText('시간', left + pw/2, h - 16);
+  c.translate(14, top + ph/2);
+  c.rotate(-Math.PI/2);
+  c.fillText('kW', 0, 0);
+  c.restore();
+
+  c.strokeStyle = color;
+  c.lineWidth = 2;
+  c.beginPath();
+  points.forEach((p,i)=>{
+    const x = toX(i);
+    const y = toY(Math.max(yMin, Math.min(yMax, p.kw)));
     i===0 ? c.moveTo(x,y) : c.lineTo(x,y);
+    p.__x = x;
+    p.__y = y;
   });
   c.stroke();
+
+  chartState.points = points;
+  chartState.rect = {left, right, top, bottom, w, h};
+  chartState.canvas = canvas;
 }
 
 async function getJson(url, options){
@@ -119,7 +233,7 @@ async function loadSites(){
   return (await getJson(`/api/sites?group=${encodeURIComponent(currentGroup)}`)).items;
 }
 async function loadSeries(siteId){
-  return (await getJson(`/api/series/${siteId}?points=40`)).points.map(p=>p.kw);
+  return (await getJson(`/api/series/${siteId}?points=40`)).points;
 }
 
 async function activatePrompt(site){
@@ -257,6 +371,39 @@ async function renderSessionState(){
   }
 }
 
+
+
+function bindChartTooltip(){
+  const canvas = document.getElementById('mainChart');
+  const tooltip = document.getElementById('chartTooltip');
+
+  canvas.onmousemove = (e)=>{
+    if(!chartState.points.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    let nearest = chartState.points[0];
+    let minDist = Math.abs(mx - nearest.__x);
+    for(const p of chartState.points){
+      const d = Math.abs(mx - p.__x);
+      if(d < minDist){
+        minDist = d;
+        nearest = p;
+      }
+    }
+    const d = new Date(nearest.measured_at);
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mm = String(d.getMinutes()).padStart(2,'0');
+    tooltip.innerHTML = `${hh}:${mm} · ${Number(nearest.kw).toLocaleString('ko-KR')} kW`;
+    tooltip.style.display = 'block';
+    tooltip.style.left = `${(nearest.__x / canvas.width) * rect.width}px`;
+    tooltip.style.top = `${(nearest.__y / canvas.height) * rect.height}px`;
+  };
+
+  canvas.onmouseleave = ()=>{
+    tooltip.style.display = 'none';
+  };
+}
+
 async function renderAll(){
   await renderMasterList();
   await renderSessionState();
@@ -279,6 +426,7 @@ document.getElementById('startSessionBtn').onclick = async ()=>{
   await renderAll();
 };
 
+bindChartTooltip();
 renderAll();
 setInterval(renderChart, 10000);
 </script>

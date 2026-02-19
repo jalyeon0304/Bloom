@@ -77,9 +77,10 @@ uvicorn bloom.main:app --reload
   - Y축 max가 active capacity 만단위 올림인지 확인
   - 툴팁 2줄(`HH:mm`, `siteId · kW (tmo%)`) 확인
   - 그룹/사이트 체크박스 tri-state 동작 확인
-- **PR3 (테이블 인라인 편집)**
-  - value 셀에서 Enter 입력 시 `Saved ✓`(약 1~1.5초) + 셀 하이라이트 확인
-  - 로그 포맷 `[HH:mm:ss] ...` 확인
+- **PR3 (테이블 인라인 편집 + role 제한)**
+  - role=viewer/supporter에서 편집 read-only 확인
+  - role=operator에서 Enter 입력 시 `Saving…` -> `Saved ✓`(약 1~1.5초) + 셀 하이라이트 확인
+  - 시스템 로그 포맷 `[HH:mm:ss] {siteId} {field} : {old} → {new}` 확인
 - **PR4 (API)**
   - `GET /api/meta`, `GET /api/summary` 확인
   - `PATCH /api/schedule`와 `GET /api/export.xlsx`는 `X-Role: Operator`에서만 성공 확인

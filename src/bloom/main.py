@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
@@ -55,6 +56,13 @@ class SchedulePatchIn(BaseModel):
     value: str | int | bool
 
 
+class UiKitSchedulePatchIn(BaseModel):
+    scenario: str = "normal"
+    siteId: str
+    field: str
+    value: str | int | bool
+
+
 # demo purpose only: in-memory store (replace with DB/Redis in production)
 _pending_login_requests: dict[str, dict] = {}
 _session_tokens: dict[str, dict] = {}
@@ -65,6 +73,34 @@ _SCHEDULE_ROWS: list[dict[str, str]] = [
     {"site_id": "KMP000", "field": "target_kw", "value": "2400", "status": "cancel"},
 ]
 _SCHEDULE_LOGS: list[str] = []
+
+_UIKIT_SCENARIO_FILES = {
+    "normal": "summary_normal.json",
+    "loading": "summary_loading.json",
+    "empty": "summary_empty.json",
+    "activeHighCapacity": "summary_activeHighCapacity.json",
+}
+
+
+def _load_uikit_state() -> dict[str, dict]:
+    base = Path(__file__).with_name("ui_fixtures")
+    out: dict[str, dict] = {}
+    for scenario, filename in _UIKIT_SCENARIO_FILES.items():
+        fixture_path = base / filename
+        out[scenario] = json.loads(fixture_path.read_text(encoding="utf-8"))
+        out[scenario].setdefault("systemLogs", [])
+    return out
+
+
+_UIKIT_DATA: dict[str, dict] = _load_uikit_state()
+
+
+def _make_uikit_logline(site_id: str, field: str, old: str, new: str, user: str | None) -> str:
+    stamp = _now_kst().strftime("%H:%M:%S")
+    if user:
+        return f"[{stamp}] {site_id} {field} : {old} → {new} (user:{user})"
+    return f"[{stamp}] {site_id} {field} : {old} → {new}"
+
 
 
 def _role_guard(x_role: str | None, allowed: set[str]) -> str:
@@ -150,15 +186,47 @@ def ui_kit(scenario: str = Query(default="normal")) -> str:
 
 @app.get("/api/ui-kit/summary")
 def api_ui_kit_summary(scenario: str = Query(default="normal")) -> dict:
-    scenario_map = {
-        "normal": "summary_normal.json",
-        "loading": "summary_loading.json",
-        "empty": "summary_empty.json",
-        "activeHighCapacity": "summary_activeHighCapacity.json",
+    key = scenario if scenario in _UIKIT_DATA else "normal"
+    return deepcopy(_UIKIT_DATA[key])
+
+
+@app.patch("/api/ui-kit/schedule")
+def api_ui_kit_schedule_patch(
+    payload: UiKitSchedulePatchIn,
+    x_user_role: str | None = Header(default=None),
+    x_user_name: str | None = Header(default=None),
+) -> dict:
+    _role_guard(x_user_role, {"operator"})
+
+    scenario = payload.scenario if payload.scenario in _UIKIT_DATA else "normal"
+    data = _UIKIT_DATA[scenario]
+    site_id = payload.siteId
+    field = payload.field
+
+    semi = data.get("semiTable") or []
+    non = data.get("nonTable") or []
+    row = next((r for r in semi + non if r.get("siteId") == site_id), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="site row not found")
+
+    old = row.get(field)
+    row[field] = payload.value
+
+    for s in data.get("sites", []):
+        if s.get("siteId") == site_id and field == "isCanceled":
+            s["isCanceled"] = bool(payload.value)
+
+    log_line = None
+    if str(old) != str(payload.value):
+        log_line = _make_uikit_logline(site_id, field, str(old), str(payload.value), x_user_name)
+        logs = data.setdefault("systemLogs", [])
+        logs.append(log_line)
+
+    return {
+        "ok": True,
+        "updated": {"siteId": site_id, "field": field, "value": payload.value},
+        "logLine": log_line,
     }
-    filename = scenario_map.get(scenario, "summary_normal.json")
-    fixture_path = Path(__file__).with_name("ui_fixtures") / filename
-    return json.loads(fixture_path.read_text(encoding="utf-8"))
 
 
 @app.get("/summary", response_class=HTMLResponse)

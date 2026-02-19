@@ -50,7 +50,7 @@ class SiteActivationIn(BaseModel):
 
 
 class SchedulePatchIn(BaseModel):
-    date: str
+    date: str | None = None
     siteId: str
     field: str
     value: str | int | bool
@@ -247,57 +247,150 @@ def api_meta() -> dict:
     }
 
 
-@app.get("/api/summary")
-def api_summary(date: str | None = Query(default=None)) -> dict:
-    fixture_path = Path(__file__).parents[2] / "docs" / "ui" / "fixtures" / "summary.sample.json"
-    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
-    server_date = _now_kst().strftime("%Y-%m-%d")
-    used_date = date or server_date
+def _store_path() -> Path:
+    return Path(__file__).with_name("schedule_store.json")
 
-    sites = [
-        {
-            "siteId": "SKK167",
-            "siteName": "Chungju",
-            "group": "non",
-            "capacityKw": 39600,
-            "isActive": False,
-            "isCanceled": False,
-            "baselineKw0900": 1200,
-            "rmccStart": "09:10",
-            "start": "09:30",
-            "finish": "11:30",
-            "minKw": 5000,
-            "maxKw": None,
-        },
-        {
-            "siteId": "SKK046",
-            "siteName": "Semi-046",
-            "group": "semi",
-            "capacityKw": 19800,
-            "isActive": True,
-            "isCanceled": False,
-            "baselineKw0900": 9800,
-            "rmccStart": "09:00",
-            "start": "09:20",
-            "finish": "10:40",
-            "minKw": 10200,
-            "maxKw": 17000,
-        },
-    ]
+
+def _load_schedule_store() -> dict:
+    path = _store_path()
+    if not path.exists():
+        return {"byDate": {}, "systemLogs": {}}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"byDate": {}, "systemLogs": {}}
+    data.setdefault("byDate", {})
+    data.setdefault("systemLogs", {})
+    return data
+
+
+def _save_schedule_store(store: dict) -> None:
+    _store_path().write_text(json.dumps(store, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _server_date(date: str | None) -> str:
+    return date or _now_kst().strftime("%Y-%m-%d")
+
+
+def _valid_hhmm(value: str) -> bool:
+    if len(value) != 5 or value[2] != ":":
+        return False
+    hh = value[:2]
+    mm = value[3:]
+    if not (hh.isdigit() and mm.isdigit()):
+        return False
+    mins = int(hh) * 60 + int(mm)
+    return 540 <= mins <= 1020
+
+
+def _baseline_from_points(points: list[dict]) -> int | None:
+    if not points:
+        return None
+    target = 9 * 60
+    scored = []
+    for p in points:
+        text = str(p.get("measured_at") or "")
+        hhmm = text[11:16] if len(text) >= 16 else ""
+        if not _valid_hhmm(hhmm):
+            continue
+        mins = int(hhmm[:2]) * 60 + int(hhmm[3:])
+        scored.append((abs(mins - target), p))
+    if not scored:
+        return None
+    scored.sort(key=lambda x: x[0])
+    return int(scored[0][1].get("kw") or 0)
+
+
+def _hourly_points(site_id: str, capacity_kw: int, date: str) -> list[dict]:
+    base = max(0, int(capacity_kw * 0.62))
+    seed = sum(ord(c) for c in site_id) % 700
+    points: list[dict] = []
+    for hour in range(9, 18):
+        kw = min(capacity_kw, base + seed + (hour - 9) * 70)
+        points.append({"measured_at": f"{date}T{hour:02d}:00:00+09:00", "kw": int(kw)})
+    return points
+
+
+def _build_summary_payload(date: str | None = None) -> dict:
+    used_date = _server_date(date)
+    masters = list_master_sites()[:8]
+    store = _load_schedule_store()
+    date_overrides = store["byDate"].get(used_date, {})
+
+    sites = []
+    per_site: dict[str, list[dict]] = {}
+    for i, m in enumerate(masters):
+        site_id = m["site_id"]
+        group = "semi" if "준중앙" in m["group_type"] else "non"
+        cap = int(m["nameplate_kw"])
+        points = _hourly_points(site_id, cap, used_date)
+        per_site[site_id] = points
+        ov = date_overrides.get(site_id, {})
+        site = {
+            "siteId": site_id,
+            "siteName": m["site_name"],
+            "group": group,
+            "capacityKw": cap,
+            "isActive": bool(ov.get("isActive", i % 2 == 0)),
+            "isCanceled": bool(ov.get("isCanceled", False)),
+            "rmccStart": str(ov.get("rmccStart", "09:00")),
+            "start": str(ov.get("start", "09:20")),
+            "finish": str(ov.get("finish", "10:20")),
+            "minKw": int(ov.get("minKw", max(1000, int(cap * 0.25)))),
+            "maxKw": int(ov.get("maxKw", max(2000, int(cap * 0.65)))) if group == "semi" else None,
+            "baselineKw0900": _baseline_from_points(points) if group == "non" else None,
+        }
+        sites.append(site)
 
     active_caps = [s["capacityKw"] for s in sites if s["isActive"] and not s["isCanceled"]]
     y_max = 10000 if not active_caps else int((max(active_caps) + 9999) // 10000 * 10000)
 
+    if sites:
+        anchor = sites[0]
+        summary = {
+            "siteId": anchor["siteId"],
+            "siteName": anchor["siteName"],
+            "group": anchor["group"],
+            "capacityKw": anchor["capacityKw"],
+            "currentKw": per_site[anchor["siteId"]][-1]["kw"],
+            "note": "live api sample",
+        }
+    else:
+        summary = {}
+
+    aggregate = []
+    if per_site:
+        for hour in range(9, 18):
+            stamp = f"{used_date}T{hour:02d}:00:00+09:00"
+            kw_sum = sum((pts[hour - 9]["kw"] for pts in per_site.values() if len(pts) >= (hour - 8)))
+            aggregate.append({"measured_at": stamp, "kw": kw_sum})
+
+    logs = store["systemLogs"].get(used_date, [])
     return {
+        "scenario": "live",
         "date": used_date,
         "timezone": "Asia/Seoul",
         "baselineTime": "09:00",
         "endTime": "17:00",
-        "yMaxKw": y_max,
+        "summary": summary,
         "sites": sites,
-        "userNote": payload.get("summary", {}).get("note", ""),
-        "systemLogs": _SCHEDULE_LOGS[:50],
+        "timeseriesBySiteId": per_site,
+        "series": aggregate,
+        "table": [
+            {"label": "Date", "value": used_date},
+            {"label": "Timezone", "value": "Asia/Seoul"},
+            {"label": "Active sites", "value": str(len([s for s in sites if s["isActive"] and not s["isCanceled"]]))},
+            {"label": "yMax", "value": f"{y_max:,} kW"},
+        ],
+        "systemLogs": logs,
+        "userNote": "",
+        "yMaxKw": y_max,
     }
+
+
+@app.get("/api/summary")
+def api_summary(date: str | None = Query(default=None)) -> dict:
+    return _build_summary_payload(date)
 
 
 @app.patch("/api/schedule")
@@ -307,39 +400,112 @@ def api_patch_schedule(
     x_user_name: str | None = Header(default=None),
 ) -> dict:
     _role_guard(x_user_role, {"operator"})
-    key_site = payload.siteId
-    key_field = payload.field
+    used_date = _server_date(payload.date)
+    allowed = {"rmccStart", "start", "finish", "minKw", "maxKw", "isCanceled", "isActive"}
+    if payload.field not in allowed:
+        raise HTTPException(status_code=400, detail="unsupported field")
 
-    target = next((r for r in _SCHEDULE_ROWS if r["site_id"] == key_site and r["field"] == key_field), None)
-    if not target:
-        target = {"site_id": key_site, "field": key_field, "value": "", "status": "active"}
-        _SCHEDULE_ROWS.append(target)
+    value = payload.value
+    if payload.field in {"rmccStart", "start", "finish"}:
+        if not isinstance(value, str) or not _valid_hhmm(value):
+            raise HTTPException(status_code=400, detail="invalid time format")
+    elif payload.field in {"minKw", "maxKw"}:
+        if isinstance(value, bool):
+            raise HTTPException(status_code=400, detail="value must be number")
+        try:
+            value = int(float(value))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="value must be number") from exc
+    elif payload.field in {"isCanceled", "isActive"}:
+        if isinstance(value, bool):
+            pass
+        elif isinstance(value, str) and value.lower() in {"true", "false"}:
+            value = value.lower() == "true"
+        else:
+            raise HTTPException(status_code=400, detail="value must be boolean")
 
-    old = str(target["value"])
-    new_val = str(payload.value)
-    target["value"] = new_val
+    store = _load_schedule_store()
+    date_map = store["byDate"].setdefault(used_date, {})
+    site_map = date_map.setdefault(payload.siteId, {})
+    old = site_map.get(payload.field)
+    site_map[payload.field] = value
 
-    if key_field == "isCanceled":
-        target["status"] = "cancel" if str(payload.value).lower() == "true" else "active"
+    log_line = None
+    if str(old) != str(value):
+        log_line = _make_uikit_logline(payload.siteId, payload.field, str(old), str(value), x_user_name)
+        logs = store["systemLogs"].setdefault(used_date, [])
+        logs.append(log_line)
 
-    log_line = _make_logline(key_site, key_field, old, new_val, x_user_name)
-    _SCHEDULE_LOGS.insert(0, log_line)
+    _save_schedule_store(store)
     return {
         "ok": True,
-        "updated": {"siteId": key_site, "field": key_field, "value": payload.value},
+        "updated": {"siteId": payload.siteId, "field": payload.field, "value": value},
         "logLine": log_line,
     }
 
 
 @app.get("/api/export.xlsx")
-def api_export_xlsx(date: str | None = Query(default=None), x_user_role: str | None = Header(default=None)) -> Response:
+def api_export_xlsx(
+    date: str | None = Query(default=None),
+    x_user_role: str | None = Header(default=None),
+    x_user_name: str | None = Header(default=None),
+) -> Response:
     _role_guard(x_user_role, {"operator"})
-    lines = ["site_id,field,value,status"] + [
-        f'{r["site_id"]},{r["field"]},{r["value"]},{r["status"]}' for r in _SCHEDULE_ROWS
-    ]
-    body = "\n".join(lines).encode("utf-8")
-    headers = {"Content-Disposition": "attachment; filename=summary_export.xlsx"}
-    return Response(content=body, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+    payload = _build_summary_payload(date)
+
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Summary"
+    ws.append(["date", "generatedAtKst", "timezone", "yMaxKw", "operator"])
+    ws.append([
+        payload["date"],
+        _now_kst().isoformat(timespec="seconds"),
+        payload["timezone"],
+        payload["yMaxKw"],
+        x_user_name or "",
+    ])
+
+    semi = wb.create_sheet("SemiCentral")
+    semi.append(["siteId", "siteName", "rmccStart", "start", "finish", "minKw", "maxKw", "isCanceled", "isActive"])
+    for s in payload.get("sites", []):
+        if s.get("group") != "semi":
+            continue
+        semi.append([s.get("siteId"), s.get("siteName"), s.get("rmccStart"), s.get("start"), s.get("finish"), s.get("minKw"), s.get("maxKw"), s.get("isCanceled"), s.get("isActive")])
+
+    non = wb.create_sheet("NonCentral")
+    non.append(["siteId", "siteName", "rmccStart", "start", "finish", "baselineKw0900", "minKw", "isCanceled", "isActive"])
+    for s in payload.get("sites", []):
+        if s.get("group") != "non":
+            continue
+        non.append([s.get("siteId"), s.get("siteName"), s.get("rmccStart"), s.get("start"), s.get("finish"), s.get("baselineKw0900"), s.get("minKw"), s.get("isCanceled"), s.get("isActive")])
+
+    logs = wb.create_sheet("SystemLogs")
+    logs.append(["logLine"])
+    for line in payload.get("systemLogs", []):
+        logs.append([line])
+
+    note = wb.create_sheet("UserNote")
+    note.append(["note"])
+    note.append([payload.get("userNote", "")])
+
+    for sheet in wb.worksheets:
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+        sheet.freeze_panes = "A2"
+        for col in sheet.columns:
+            col_letter = col[0].column_letter
+            width = max(len(str(c.value or "")) for c in col[:20]) + 2
+            sheet.column_dimensions[col_letter].width = min(36, width)
+
+    out = BytesIO()
+    wb.save(out)
+    filename = f"summary_{payload['date']}.xlsx"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=out.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
 
 @app.post("/api/auth/login-request")

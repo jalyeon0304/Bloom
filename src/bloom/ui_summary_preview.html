@@ -40,7 +40,7 @@
   <div class="card top">
     <div>
       <strong>Summary UI Preview (/ui-kit)</strong>
-      <div class="muted">PR3: 인라인 편집 + Enter autosave + role 제한</div>
+      <div class="muted">PR4: fixture/live 토글 + live autosave/export + role 제한</div>
     </div>
     <div class="btns">
       <button class="btn" data-scenario="loading">loading</button>
@@ -57,6 +57,15 @@
         </select>
       </label>
       <label class="muted">Name <input id="nameInput" placeholder="optional"/></label>
+      <label class="muted">Data Source
+        <select id="sourceSel">
+          <option value="fixture">fixture</option>
+          <option value="live">live</option>
+        </select>
+      </label>
+      <label class="muted">Date <input id="dateInput" type="date"/></label>
+      <button class="btn" id="reloadBtn">Reload</button>
+      <button class="btn" id="exportBtn">Export .xlsx</button>
       <span id="readonlyBadge" class="readonly">Read-only</span>
     </div>
   </div>
@@ -103,6 +112,7 @@
 const defaultScenario = '__SCENARIO__' || 'normal';
 const hoverState = { idx: -1, points: [] };
 let CURRENT = null;
+let DATA_SOURCE = localStorage.getItem('uikit.source') || 'fixture';
 
 function num(v){ return Number(v || 0).toLocaleString('ko-KR'); }
 function parseToKstMinutes(value){
@@ -165,8 +175,32 @@ function bindHover(){
   canvas.onmouseleave=()=>{ hoverState.idx=-1; tt.style.display='none'; drawSeries(CURRENT||{}); };
 }
 
-async function loadScenario(scenario){
+async function loadFixtureScenario(scenario){
   const r=await fetch(`/api/ui-kit/summary?scenario=${encodeURIComponent(scenario)}`); if(!r.ok) throw new Error(await r.text()); return r.json();
+}
+
+function getDateValue(){ return document.getElementById('dateInput').value; }
+
+function authHeaders(){
+  const headers = { 'X-User-Role': getRole() };
+  const name = (localStorage.getItem('uikit.name') || '').trim();
+  if(name) headers['X-User-Name'] = name;
+  return headers;
+}
+
+async function loadLiveSummary(){
+  const metaRes = await fetch('/api/meta', { headers: authHeaders() });
+  if(!metaRes.ok) throw new Error(await metaRes.text());
+  const meta = await metaRes.json();
+  const dateInput = document.getElementById('dateInput');
+  if(!dateInput.value) dateInput.value = meta.serverDateKst;
+  const date = dateInput.value || meta.serverDateKst;
+  const url = `/api/summary?date=${encodeURIComponent(date)}`;
+  const sumRes = await fetch(url, { headers: authHeaders() });
+  if(!sumRes.ok) throw new Error(await sumRes.text());
+  const payload = await sumRes.json();
+  payload.scenario = 'live';
+  return payload;
 }
 
 function applyScenarioInUrl(s){ const u=new URL(window.location.href); u.searchParams.set('scenario', s); history.replaceState({}, '', u.toString()); }
@@ -193,10 +227,11 @@ function validate(field, value, row){
 }
 
 async function patchCell(siteId, field, value){
-  const role = getRole();
-  const name = localStorage.getItem('uikit.name') || '';
-  const headers = { 'Content-Type':'application/json', 'X-User-Role': role };
-  if(name) headers['X-User-Name']=name;
+  const headers = { 'Content-Type':'application/json', ...authHeaders() };
+  if(DATA_SOURCE==='live'){
+    const body = { date:getDateValue() || undefined, siteId, field, value };
+    return fetch('/api/schedule', { method:'PATCH', headers, body: JSON.stringify(body) });
+  }
   const scenario=CURRENT?.scenario || 'normal';
   const q=new URLSearchParams({ scenario });
   return fetch(`/api/ui-kit/schedule?${q.toString()}`, { method:'PATCH', headers, body: JSON.stringify({ siteId, field, value }) });
@@ -304,7 +339,7 @@ function renderData(data){
   deriveTables(normalizedData);
   CURRENT = normalizedData;
   const scenario = normalizedData.scenario || 'normal';
-  document.querySelectorAll('.btn').forEach(b=>b.classList.toggle('active', b.dataset.scenario===scenario));
+  document.querySelectorAll('.btn[data-scenario]').forEach(b=>b.classList.toggle('active', DATA_SOURCE==='fixture' && b.dataset.scenario===scenario));
   applyScenarioInUrl(scenario);
 
   const summary = normalizedData.summary || {};
@@ -331,24 +366,55 @@ function renderData(data){
   renderLogs();
 }
 
+async function reloadCurrent(){
+  if(DATA_SOURCE==='live'){
+    renderData(await loadLiveSummary());
+    return;
+  }
+  const fromUrl = new URL(window.location.href).searchParams.get('scenario');
+  const scenario = fromUrl || defaultScenario || 'normal';
+  renderData(await loadFixtureScenario(scenario));
+}
+
 function initRoleUi(){
   const roleSel=document.getElementById('roleSel');
   const nameInput=document.getElementById('nameInput');
+  const sourceSel=document.getElementById('sourceSel');
+  const dateInput=document.getElementById('dateInput');
+  const reloadBtn=document.getElementById('reloadBtn');
+  const exportBtn=document.getElementById('exportBtn');
   roleSel.value = localStorage.getItem('uikit.role') || 'viewer';
   nameInput.value = localStorage.getItem('uikit.name') || '';
+  sourceSel.value = DATA_SOURCE;
+  dateInput.value = localStorage.getItem('uikit.date') || '';
+
   roleSel.onchange=()=>{ localStorage.setItem('uikit.role', roleSel.value); if(CURRENT) renderData(CURRENT); };
   nameInput.onchange=()=>{ localStorage.setItem('uikit.name', nameInput.value.trim()); };
+  sourceSel.onchange=async()=>{ DATA_SOURCE=sourceSel.value; localStorage.setItem('uikit.source', DATA_SOURCE); await reloadCurrent(); };
+  dateInput.onchange=()=>{ localStorage.setItem('uikit.date', dateInput.value); if(DATA_SOURCE==='live') reloadCurrent(); };
+  reloadBtn.onclick=()=>reloadCurrent();
+  exportBtn.onclick=()=>{
+    if(DATA_SOURCE!=='live') return;
+    const date = getDateValue();
+    const url = `/api/export.xlsx?date=${encodeURIComponent(date||'')}`;
+    fetch(url,{headers:authHeaders()}).then(async r=>{
+      if(!r.ok){ alert('Export failed: '+(await r.text())); return; }
+      const blob=await r.blob();
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=`summary_${date||'export'}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+  };
 }
 
 async function boot(){
-  const fromUrl = new URL(window.location.href).searchParams.get('scenario');
-  const scenario = fromUrl || defaultScenario || 'normal';
-  const data = await loadScenario(scenario);
-  renderData(data);
+  await reloadCurrent();
 }
 
-document.querySelectorAll('.btn').forEach(btn=>{
-  btn.onclick = async ()=>{ renderData(await loadScenario(btn.dataset.scenario)); };
+document.querySelectorAll('.btn[data-scenario]').forEach(btn=>{
+  btn.onclick = async ()=>{ if(DATA_SOURCE!=='fixture') return; renderData(await loadFixtureScenario(btn.dataset.scenario)); };
 });
 
 bindHover();

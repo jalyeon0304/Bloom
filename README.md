@@ -83,5 +83,6 @@ uvicorn bloom.main:app --reload
   - 시스템 로그 포맷 `[HH:mm:ss] {siteId} {field} : {old} → {new}` 확인
 - **PR4 (API)**
   - `GET /api/meta`, `GET /api/summary` 확인
-  - `PATCH /api/schedule`와 `GET /api/export.xlsx`는 `X-Role: Operator`에서만 성공 확인
+  - `/ui-kit`에서 Data Source를 live로 전환 후 date/reload/export 동작 확인
+  - `PATCH /api/schedule`와 `GET /api/export.xlsx`는 `X-User-Role: operator`에서만 성공 확인
 

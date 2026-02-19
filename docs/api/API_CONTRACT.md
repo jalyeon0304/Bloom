@@ -21,6 +21,10 @@ Response (minimal):
   "timezone": "Asia/Seoul",
   "baselineTime": "09:00",
   "endTime": "17:00",
+  "summary": {},
+  "timeseriesBySiteId": { "SKK167": [{ "measured_at": "YYYY-MM-DDTHH:mm:ss+09:00", "kw": 12345 }] },
+  "series": [{ "measured_at": "YYYY-MM-DDTHH:mm:ss+09:00", "kw": 12345 }],
+  "table": [{ "label": "Date", "value": "YYYY-MM-DD" }],
   "yMaxKw": 30000,
   "sites": [
     {

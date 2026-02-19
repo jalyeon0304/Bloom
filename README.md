@@ -95,6 +95,8 @@ uvicorn bloom.main:app --reload
 - `/api/meta`
 - `/api/summary?date=YYYY-MM-DD`
 - `/api/export.xlsx?date=YYYY-MM-DD` (operator only)
+- `/api/history?siteId=SKK046&from=2026-01-01`
+- `/api/history/summary?siteId=SKK046&from=2026-01-01`
 
 ## Role 설정
 - 상단 Role selector로 `viewer|supporter|operator`를 선택하면 localStorage에 저장됩니다.

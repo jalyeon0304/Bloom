@@ -65,3 +65,12 @@ Response:
 ## GET /api/export.xlsx?date=YYYY-MM-DD
 Auth: operator only
 Response: binary xlsx (Content-Disposition attachment)
+
+
+## GET /api/history?siteId=...&from=YYYY-MM-DD&to=YYYY-MM-DD
+- Append-only snapshot history (JSONL source: `data/dispatch_history.jsonl`).
+- Returns latest-first items for the site/date range.
+
+## GET /api/history/summary?siteId=...&from=YYYY-MM-DD
+- Returns count summary from `from` date:
+  - `createdCount`, `updatedCount`, `canceledCount`

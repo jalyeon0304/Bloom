@@ -1,3 +1,4 @@
+from collections import deque
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 import json
@@ -289,20 +290,19 @@ def _ensure_history_file() -> Path:
     return path
 
 
-def _history_records() -> list[dict]:
+def _iter_history_records():
     path = _history_path()
     if not path.exists():
-        return []
-    out: list[dict] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        text = line.strip()
-        if not text:
-            continue
-        try:
-            out.append(json.loads(text))
-        except json.JSONDecodeError:
-            continue
-    return out
+        return
+    with path.open(encoding="utf-8") as fp:
+        for line in fp:
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                yield json.loads(text)
+            except json.JSONDecodeError:
+                continue
 
 
 def _append_history(record: dict) -> None:
@@ -311,10 +311,10 @@ def _append_history(record: dict) -> None:
         fp.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def _event_type(field: str, value: str | int | bool) -> str:
-    if field == "isActive" and value is True:
+def _event_type(field: str, old_value: str | int | bool | None, new_value: str | int | bool) -> str:
+    if field == "isActive" and bool(old_value) is False and new_value is True:
         return "ORDER_CREATED"
-    if field == "isCanceled" and value is True:
+    if field == "isCanceled" and bool(old_value) is False and new_value is True:
         return "ORDER_CANCELED"
     return "ORDER_UPDATED"
 
@@ -323,12 +323,13 @@ def _make_snapshot_record(
     date: str,
     site: dict,
     field: str,
-    value: str | int | bool,
+    old_value: str | int | bool | None,
+    new_value: str | int | bool,
     role: str,
     user_name: str | None,
 ) -> dict:
     return {
-        "eventType": _event_type(field, value),
+        "eventType": _event_type(field, old_value, new_value),
         "occurredAt": _now_kst().isoformat(timespec="seconds"),
         "userRole": role,
         "userName": user_name or None,
@@ -518,11 +519,12 @@ def api_patch_schedule(
 
     _save_schedule_store(store)
 
-    latest_summary = _build_summary_payload(used_date)
-    latest_site = next((s for s in latest_summary.get("sites", []) if s.get("siteId") == payload.siteId), None)
-    if latest_site:
-        snapshot = _make_snapshot_record(used_date, latest_site, payload.field, value, role, x_user_name)
-        _append_history(snapshot)
+    if str(old) != str(value):
+        latest_summary = _build_summary_payload(used_date)
+        latest_site = next((s for s in latest_summary.get("sites", []) if s.get("siteId") == payload.siteId), None)
+        if latest_site:
+            snapshot = _make_snapshot_record(used_date, latest_site, payload.field, old, value, role, x_user_name)
+            _append_history(snapshot)
 
     return {
         "ok": True,
@@ -536,31 +538,34 @@ def api_history(
     siteId: str = Query(...),
     from_date: str = Query(alias="from", default="2026-01-01"),
     to_date: str | None = Query(alias="to", default=None),
+    limit: int = Query(default=500, ge=1, le=5000),
 ) -> dict:
-    items = []
-    for rec in _history_records():
+    upper = to_date or _server_date(None)
+    matched = deque(maxlen=limit)
+    for rec in _iter_history_records() or []:
         rec_date = str(rec.get("date") or "")
         if rec.get("siteId") != siteId:
             continue
-        if rec_date < from_date:
+        if rec_date < from_date or rec_date > upper:
             continue
-        if to_date and rec_date > to_date:
-            continue
-        items.append(rec)
-    items.sort(key=lambda r: str(r.get("occurredAt") or ""), reverse=True)
-    return {"items": items}
+        matched.append(rec)
+    items = list(reversed(matched))
+    return {"items": items, "limit": limit}
 
 
 @app.get("/api/history/summary")
 def api_history_summary(
     siteId: str = Query(...),
     from_date: str = Query(alias="from", default="2026-01-01"),
+    to_date: str | None = Query(alias="to", default=None),
 ) -> dict:
+    upper = to_date or _server_date(None)
     counts = {"ORDER_CREATED": 0, "ORDER_UPDATED": 0, "ORDER_CANCELED": 0}
-    for rec in _history_records():
+    for rec in _iter_history_records() or []:
         if rec.get("siteId") != siteId:
             continue
-        if str(rec.get("date") or "") < from_date:
+        rec_date = str(rec.get("date") or "")
+        if rec_date < from_date or rec_date > upper:
             continue
         event = str(rec.get("eventType") or "")
         if event in counts:
@@ -568,6 +573,7 @@ def api_history_summary(
     return {
         "siteId": siteId,
         "from": from_date,
+        "to": upper,
         "createdCount": counts["ORDER_CREATED"],
         "updatedCount": counts["ORDER_UPDATED"],
         "canceledCount": counts["ORDER_CANCELED"],

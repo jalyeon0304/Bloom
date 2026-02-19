@@ -25,4 +25,4 @@ where = ["src"]
 
 
 [tool.setuptools.package-data]
-bloom = ["stamp_capacity.tsv", "ui_dashboard.html"]
+bloom = ["stamp_capacity.tsv", "ui_dashboard.html", "ui_summary_preview.html"]

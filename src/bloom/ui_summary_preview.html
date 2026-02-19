@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Summary UI Kit Preview</title>
+  <style>
+    :root { --bg:#f3f4f6; --text:#111827; --muted:#6b7280; --card:#fff; --line:#e5e7eb; --primary:#2563eb; }
+    body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width:1100px; margin:0 auto; padding:16px; display:grid; gap:12px; }
+    .card { background:var(--card); border-radius:12px; padding:14px; box-shadow:0 4px 14px rgba(0,0,0,.06); }
+    .top { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+    .toggles { display:flex; gap:8px; }
+    .btn { border:1px solid var(--line); border-radius:16px; padding:6px 10px; background:#fff; cursor:pointer; }
+    .btn.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .muted { color:var(--muted); font-size:12px; }
+    .grid { display:grid; grid-template-columns:1.3fr 1fr; gap:12px; }
+    table { width:100%; border-collapse:collapse; }
+    td { padding:8px; border-bottom:1px solid var(--line); }
+    td:last-child { text-align:right; font-weight:700; }
+    #summaryChart { width:100%; height:220px; }
+    .empty,.loading { text-align:center; padding:32px 12px; color:var(--muted); }
+    @media (max-width:900px){ .grid{ grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card top">
+    <div>
+      <strong>Summary UI Kit</strong>
+      <div class="muted">/ui-kit 또는 /summary?mock=1 에서 확인</div>
+    </div>
+    <div class="toggles">
+      <button class="btn active" data-state="normal">normal</button>
+      <button class="btn" data-state="loading">loading</button>
+      <button class="btn" data-state="empty">empty</button>
+      <button class="btn" data-state="activeHighCapacity">activeHighCapacity</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card" id="chartCard">
+      <div class="top"><strong id="title">Summary 차트</strong><span class="muted" id="subtitle"></span></div>
+      <canvas id="summaryChart" width="700" height="220"></canvas>
+      <div id="stateHint" class="muted"></div>
+    </div>
+
+    <div class="card">
+      <strong>Summary 테이블</strong>
+      <table><tbody id="summaryTable"></tbody></table>
+      <div class="muted" id="note"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const FIXTURE = __FIXTURE_JSON__;
+
+function drawChart(points){
+  const canvas = document.getElementById('summaryChart');
+  const c = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  c.clearRect(0,0,w,h);
+  if(points.length < 2) return;
+
+  const left = 52, top = 10, right = 12, bottom = 28;
+  const pw = w-left-right, ph = h-top-bottom;
+  const minY = 0, maxY = 40000;
+  const toX = (i)=> left + (i/(points.length-1))*pw;
+  const toY = (v)=> top + (1-(v-minY)/(maxY-minY))*ph;
+
+  c.strokeStyle = '#e5e7eb'; c.fillStyle='#6b7280'; c.font='11px sans-serif';
+  for(let y=0;y<=40000;y+=10000){
+    const py = toY(y); c.beginPath(); c.moveTo(left,py); c.lineTo(w-right,py); c.stroke();
+    c.fillText(String(y), 4, py+3);
+  }
+
+  points.forEach((p,i)=>{
+    const d=new Date(p.measured_at); const major=d.getMinutes()===0;
+    const x=toX(i);
+    if(d.getMinutes()%10===0){ c.strokeStyle='#9ca3af'; c.beginPath(); c.moveTo(x,h-bottom); c.lineTo(x,h-bottom+(major?6:3)); c.stroke(); }
+    if(major){ c.strokeStyle='#e5e7eb'; c.beginPath(); c.moveTo(x,top); c.lineTo(x,h-bottom); c.stroke(); c.fillText(`${String(d.getHours()).padStart(2,'0')}:00`, x-14, h-6); }
+  });
+
+  c.strokeStyle='#9ca3af'; c.beginPath(); c.moveTo(left,top); c.lineTo(left,h-bottom); c.lineTo(w-right,h-bottom); c.stroke();
+  c.strokeStyle='#2563eb'; c.lineWidth=2; c.beginPath();
+  points.forEach((p,i)=>{ const x=toX(i), y=toY(p.kw); i?c.lineTo(x,y):c.moveTo(x,y); });
+  c.stroke(); c.lineWidth=1;
+}
+
+function render(state){
+  document.querySelectorAll('.btn').forEach(b=>b.classList.toggle('active', b.dataset.state===state));
+  const title = document.getElementById('title');
+  const subtitle = document.getElementById('subtitle');
+  const table = document.getElementById('summaryTable');
+  const note = document.getElementById('note');
+  const hint = document.getElementById('stateHint');
+  const canvas = document.getElementById('summaryChart');
+
+  table.innerHTML='';
+  note.textContent='';
+  hint.textContent='';
+  canvas.style.display='block';
+
+  if(state==='loading'){
+    title.textContent='Summary 차트 (loading)';
+    canvas.style.display='none';
+    hint.innerHTML='<div class="loading">로딩 중...</div>';
+    return;
+  }
+  if(state==='empty'){
+    title.textContent='Summary 차트 (empty)';
+    canvas.style.display='none';
+    hint.innerHTML='<div class="empty">표시할 데이터가 없습니다.</div>';
+    return;
+  }
+
+  const data = structuredClone(FIXTURE);
+  if(state==='activeHighCapacity'){
+    data.summary.site_id='SKK167';
+    data.summary.nameplate_kw=39600;
+    data.summary.current_output_kw=35200;
+    data.note='activeHighCapacity 시나리오(39,600kW 활성)';
+  }
+
+  title.textContent = `${data.summary.site_id} Summary 차트`;
+  subtitle.textContent = `${data.summary.group_type} · Nameplate ${data.summary.nameplate_kw.toLocaleString('ko-KR')} kW`;
+  drawChart(data.series);
+
+  data.table.forEach(r=>{
+    const tr=document.createElement('tr'); tr.innerHTML=`<td>${r.label}</td><td>${r.value}</td>`; table.appendChild(tr);
+  });
+  note.textContent = `${data.summary.note} / ${data.summary.warning}`;
+}
+
+document.querySelectorAll('.btn').forEach(btn=>btn.onclick=()=>render(btn.dataset.state));
+render('normal');
+</script>
+</body>
+</html>

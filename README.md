@@ -24,7 +24,12 @@ cp .env.example .env
 uvicorn bloom.main:app --reload
 ```
 
-실행 후 `http://127.0.0.1:8000/dashboard` 에서 토스 스타일 데모 UI를 확인할 수 있습니다.
+실행 후 아래 경로를 확인할 수 있습니다.
+- `http://127.0.0.1:8000/dashboard` : 운영 대시보드 데모
+- `http://127.0.0.1:8000/ui-kit` : Summary UI mock 미리보기
+- `http://127.0.0.1:8000/summary?mock=1` : Summary mock 모드
+
+Summary mock은 `docs/ui/fixtures/summary.sample.json` fixture를 사용하므로 백엔드/DB 없이도 항상 렌더링됩니다.
 
 ## 서버 데이터 업데이트 주기 권장안
 - 기본(상시 모니터링): **60초**

@@ -1,0 +1,30 @@
+{
+  "summary": {
+    "site_id": "SKK167",
+    "group_type": "준중앙",
+    "nameplate_kw": 39600,
+    "submitted_output_kw": 33000,
+    "open_output_kw": 32100,
+    "current_output_kw": 30550,
+    "note": "준중앙 고용량 현장. min/max 목표와 시간조건을 함께 모니터링합니다.",
+    "warning": "시초-제출 편차가 10% 이상이면 경보 하이라이트"
+  },
+  "series": [
+    {"measured_at": "2026-01-01T08:00:00", "kw": 33200},
+    {"measured_at": "2026-01-01T08:10:00", "kw": 32800},
+    {"measured_at": "2026-01-01T08:20:00", "kw": 32400},
+    {"measured_at": "2026-01-01T08:30:00", "kw": 32000},
+    {"measured_at": "2026-01-01T08:40:00", "kw": 31800},
+    {"measured_at": "2026-01-01T08:50:00", "kw": 31500},
+    {"measured_at": "2026-01-01T09:00:00", "kw": 31100},
+    {"measured_at": "2026-01-01T09:10:00", "kw": 30900},
+    {"measured_at": "2026-01-01T09:20:00", "kw": 30700},
+    {"measured_at": "2026-01-01T09:30:00", "kw": 30550}
+  ],
+  "table": [
+    {"label": "정격용량", "value": "39,600 kW"},
+    {"label": "고객 제출", "value": "33,000 kW"},
+    {"label": "시초 출력", "value": "32,100 kW"},
+    {"label": "현재 출력", "value": "30,550 kW"}
+  ]
+}

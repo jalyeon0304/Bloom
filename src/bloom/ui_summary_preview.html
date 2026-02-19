@@ -84,6 +84,52 @@ function timeLabel(mins){
   return `${h}:${m}`;
 }
 
+
+function normalizeFixture(data){
+  const bySite = data.timeseriesBySiteId && typeof data.timeseriesBySiteId === 'object'
+    ? data.timeseriesBySiteId
+    : null;
+
+  const normalizedBySite = {};
+  if(bySite){
+    for(const [siteId, points] of Object.entries(bySite)){
+      normalizedBySite[siteId] = (points || [])
+        .map(p => ({ measured_at: p.measured_at, kw: Number(p.kw || 0), mins: parseToKstMinutes(p.measured_at) }))
+        .filter(p => p.mins >= 9 * 60 && p.mins <= 17 * 60)
+        .sort((a,b)=>a.mins-b.mins);
+    }
+  }
+
+  const aggregateSeries = (data.series || [])
+    .map(p => ({ measured_at: p.measured_at, kw: Number(p.kw || 0), mins: parseToKstMinutes(p.measured_at) }))
+    .filter(p => p.mins >= 9 * 60 && p.mins <= 17 * 60)
+    .sort((a,b)=>a.mins-b.mins);
+
+  return {
+    ...data,
+    __normalized: {
+      hasPerSite: !!bySite,
+      perSite: normalizedBySite,
+      aggregate: aggregateSeries,
+    }
+  };
+}
+
+function seriesForRender(data){
+  const mode = 'per-site';
+  const normalized = data.__normalized || { hasPerSite:false, perSite:{}, aggregate:[] };
+  const siteId = data?.summary?.siteId;
+
+  if(mode === 'per-site'){
+    if(normalized.hasPerSite){
+      return normalized.perSite[siteId] || [];
+    }
+    return [];
+  }
+
+  return normalized.aggregate;
+}
+
 function drawSeries(data){
   const canvas = document.getElementById('chart');
   const c = canvas.getContext('2d');
@@ -144,9 +190,7 @@ function drawSeries(data){
   const points = [];
   const siteId = data?.summary?.siteId || '-';
   const capacityKw = Number(data?.summary?.capacityKw || 0);
-  const series = (data.series || []).map(p => ({ ...p, mins: parseToKstMinutes(p.measured_at) }))
-    .filter(p => p.mins >= xStart && p.mins <= xEnd)
-    .sort((a,b)=>a.mins-b.mins);
+  const series = seriesForRender(data);
 
   if(series.length < 2){
     hoverState.points = [];
@@ -250,19 +294,20 @@ function bindHover(){
 }
 
 function renderData(data){
-  window.__currentData = data;
-  const scenario = data.scenario || 'normal';
+  const normalizedData = normalizeFixture(data);
+  window.__currentData = normalizedData;
+  const scenario = normalizedData.scenario || 'normal';
   document.querySelectorAll('.btn').forEach(b=>b.classList.toggle('active', b.dataset.scenario===scenario));
   applyScenarioInUrl(scenario);
 
-  const summary = data.summary || {};
+  const summary = normalizedData.summary || {};
   document.getElementById('title').textContent = `${summary.siteId || '-'} Summary 차트`;
   document.getElementById('subtitle').textContent = `${summary.group || '-'} · capacity ${num(summary.capacityKw)} kW`;
   document.getElementById('note').textContent = summary.note || '';
 
   const tbody=document.getElementById('tbody');
   tbody.innerHTML='';
-  for(const row of (data.table || [])){
+  for(const row of (normalizedData.table || [])){
     const tr=document.createElement('tr');
     tr.innerHTML = `<td>${row.label}</td><td>${row.value}</td>`;
     tbody.appendChild(tr);
@@ -270,11 +315,11 @@ function renderData(data){
 
   if(scenario==='loading') return renderStateOnly('로딩 중...');
   if(scenario==='empty') return renderStateOnly('표시할 데이터가 없습니다.');
-  if(getActiveSites(data).length === 0) return renderStateOnly('활성 현장이 없습니다. (yMax=10000 fallback)');
+  if(getActiveSites(normalizedData).length === 0) return renderStateOnly('활성 현장이 없습니다. (yMax=10000 fallback)');
 
   document.getElementById('stateBox').style.display='none';
   document.getElementById('chart').style.display='block';
-  drawSeries(data);
+  drawSeries(normalizedData);
 }
 
 async function boot(){

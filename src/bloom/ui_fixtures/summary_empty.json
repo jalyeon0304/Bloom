@@ -10,5 +10,6 @@
   },
   "sites": [],
   "series": [],
-  "table": []
+  "table": [],
+  "timeseriesBySiteId": {}
 }

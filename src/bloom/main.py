@@ -49,10 +49,10 @@ class SiteActivationIn(BaseModel):
 
 
 class SchedulePatchIn(BaseModel):
-    site_id: str
+    date: str
+    siteId: str
     field: str
-    value: str
-    user: str | None = None
+    value: str | int | bool
 
 
 # demo purpose only: in-memory store (replace with DB/Redis in production)
@@ -68,7 +68,7 @@ _SCHEDULE_LOGS: list[str] = []
 
 
 def _role_guard(x_role: str | None, allowed: set[str]) -> str:
-    role = (x_role or "Viewer").strip()
+    role = (x_role or "viewer").strip().lower()
     if role not in allowed:
         raise HTTPException(status_code=403, detail="forbidden")
     return role
@@ -164,56 +164,101 @@ def summary_preview(mock: int = Query(default=0)) -> str:
 @app.get("/api/meta")
 def api_meta() -> dict:
     now = _now_kst()
-    return {"timezone": "Asia/Seoul", "kst_date": now.strftime("%Y-%m-%d"), "generated_at": now.isoformat()}
+    return {
+        "timezone": "Asia/Seoul",
+        "serverDateKst": now.strftime("%Y-%m-%d"),
+        "baselineTime": "09:00",
+        "endTime": "17:00",
+    }
 
 
 @app.get("/api/summary")
-def api_summary(state: str = Query(default="normal")) -> dict:
+def api_summary(date: str | None = Query(default=None)) -> dict:
     fixture_path = Path(__file__).parents[2] / "docs" / "ui" / "fixtures" / "summary.sample.json"
     payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+    server_date = _now_kst().strftime("%Y-%m-%d")
+    used_date = date or server_date
+
     sites = [
-        {"site_id": "SKK046", "group": "준중앙", "active": True, "capacity_kw": 19800},
-        {"site_id": "SKK056", "group": "준중앙", "active": True, "capacity_kw": 8910},
-        {"site_id": "SKK167", "group": "준중앙", "active": True, "capacity_kw": 39600},
-        {"site_id": "KMP000", "group": "비중앙", "active": False, "capacity_kw": 6000},
-        {"site_id": "SKK000", "group": "비중앙", "active": True, "capacity_kw": 19800},
+        {
+            "siteId": "SKK167",
+            "siteName": "Chungju",
+            "group": "non",
+            "capacityKw": 39600,
+            "isActive": False,
+            "isCanceled": False,
+            "baselineKw0900": 1200,
+            "rmccStart": "09:10",
+            "start": "09:30",
+            "finish": "11:30",
+            "minKw": 5000,
+            "maxKw": None,
+        },
+        {
+            "siteId": "SKK046",
+            "siteName": "Semi-046",
+            "group": "semi",
+            "capacityKw": 19800,
+            "isActive": True,
+            "isCanceled": False,
+            "baselineKw0900": 9800,
+            "rmccStart": "09:00",
+            "start": "09:20",
+            "finish": "10:40",
+            "minKw": 10200,
+            "maxKw": 17000,
+        },
     ]
-    if state == "high-capacity-active":
-        payload["summary"]["nameplate_kw"] = 39600
-        payload["summary"]["current_output_kw"] = 35200
-    if state == "empty":
-        payload["series"] = []
-        payload["table"] = []
-    return {**payload, "sites": sites, "table": _SCHEDULE_ROWS, "logs": _SCHEDULE_LOGS[:50]}
+
+    active_caps = [s["capacityKw"] for s in sites if s["isActive"] and not s["isCanceled"]]
+    y_max = 10000 if not active_caps else int((max(active_caps) + 9999) // 10000 * 10000)
+
+    return {
+        "date": used_date,
+        "timezone": "Asia/Seoul",
+        "baselineTime": "09:00",
+        "endTime": "17:00",
+        "yMaxKw": y_max,
+        "sites": sites,
+        "userNote": payload.get("summary", {}).get("note", ""),
+        "systemLogs": _SCHEDULE_LOGS[:50],
+    }
 
 
 @app.patch("/api/schedule")
-def api_patch_schedule(payload: SchedulePatchIn, x_role: str | None = Header(default=None)) -> dict:
-    _role_guard(x_role, {"Operator"})
-    target = next((r for r in _SCHEDULE_ROWS if r["site_id"] == payload.site_id and r["field"] == payload.field), None)
+def api_patch_schedule(
+    payload: SchedulePatchIn,
+    x_user_role: str | None = Header(default=None),
+    x_user_name: str | None = Header(default=None),
+) -> dict:
+    _role_guard(x_user_role, {"operator"})
+    key_site = payload.siteId
+    key_field = payload.field
+
+    target = next((r for r in _SCHEDULE_ROWS if r["site_id"] == key_site and r["field"] == key_field), None)
     if not target:
-        target = {"site_id": payload.site_id, "field": payload.field, "value": "", "status": "active"}
+        target = {"site_id": key_site, "field": key_field, "value": "", "status": "active"}
         _SCHEDULE_ROWS.append(target)
-    old = target["value"]
-    target["value"] = payload.value
-    if payload.field == "cancel":
-        target["status"] = "cancel"
-    log_line = _make_logline(payload.site_id, payload.field, old, payload.value, payload.user)
+
+    old = str(target["value"])
+    new_val = str(payload.value)
+    target["value"] = new_val
+
+    if key_field == "isCanceled":
+        target["status"] = "cancel" if str(payload.value).lower() == "true" else "active"
+
+    log_line = _make_logline(key_site, key_field, old, new_val, x_user_name)
     _SCHEDULE_LOGS.insert(0, log_line)
     return {
         "ok": True,
-        "site_id": payload.site_id,
-        "field": payload.field,
-        "old": old,
-        "new": payload.value,
+        "updated": {"siteId": key_site, "field": key_field, "value": payload.value},
         "logLine": log_line,
-        "saved_at": _now_kst().isoformat(),
     }
 
 
 @app.get("/api/export.xlsx")
-def api_export_xlsx(x_role: str | None = Header(default=None)) -> Response:
-    _role_guard(x_role, {"Operator"})
+def api_export_xlsx(date: str | None = Query(default=None), x_user_role: str | None = Header(default=None)) -> Response:
+    _role_guard(x_user_role, {"operator"})
     lines = ["site_id,field,value,status"] + [
         f'{r["site_id"]},{r["field"]},{r["value"]},{r["status"]}' for r in _SCHEDULE_ROWS
     ]

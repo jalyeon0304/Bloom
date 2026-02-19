@@ -114,7 +114,8 @@ function parseToKstMinutes(value){
   return d.getUTCHours() * 60 + d.getUTCMinutes();
 }
 function timeLabel(mins){ const h=String(Math.floor(mins/60)).padStart(2,'0'); const m=String(mins%60).padStart(2,'0'); return `${h}:${m}`; }
-function isOperator(){ return (localStorage.getItem('uikit.role') || 'viewer') === 'operator'; }
+function getRole(){ return localStorage.getItem('uikit.role') || 'viewer'; }
+function isOperator(){ return getRole() === 'operator'; }
 
 function normalizeFixture(data){
   const bySite = data.timeseriesBySiteId && typeof data.timeseriesBySiteId === 'object' ? data.timeseriesBySiteId : null;
@@ -191,22 +192,17 @@ function validate(field, value, row){
   return null;
 }
 
-async function patchCell(scenario, siteId, field, value){
-  const role = localStorage.getItem('uikit.role') || 'viewer';
+async function patchCell(siteId, field, value){
+  const role = getRole();
   const name = localStorage.getItem('uikit.name') || '';
   const headers = { 'Content-Type':'application/json', 'X-User-Role': role };
   if(name) headers['X-User-Name']=name;
-  return fetch('/api/ui-kit/schedule', { method:'PATCH', headers, body: JSON.stringify({ scenario, siteId, field, value }) });
+  const scenario=CURRENT?.scenario || 'normal';
+  const q=new URLSearchParams({ scenario });
+  return fetch(`/api/ui-kit/schedule?${q.toString()}`, { method:'PATCH', headers, body: JSON.stringify({ siteId, field, value }) });
 }
 
 function statusMark(el, text, cls){ el.className=`status ${cls||''}`; el.textContent=text; }
-
-function rowTemplate(row, isSemi){
-  const timeCells=['rmccStart','start','finish'];
-  const numCells=isSemi?['minKw','maxKw']:['minKw'];
-  const columns=[...timeCells, ...(isSemi?['maxKw']:[]), ...(isSemi?[]:['baselineKw0900']), 'minKw'];
-  return {timeCells, numCells};
-}
 
 function renderEditableTables(){
   const semiBody=document.getElementById('semiBody');
@@ -244,7 +240,7 @@ function renderEditableTables(){
         input.classList.remove('cell-err');
         if(String(oldVal)===String(newVal)){ statusMark(statusEl,'',''); return; }
         statusMark(statusEl,'Saving…','saving');
-        const res=await patchCell(CURRENT.scenario,row.siteId,field,newVal);
+        const res=await patchCell(row.siteId,field,newVal);
         if(!res.ok){ statusMark(statusEl,'Failed','failed'); input.classList.add('cell-err'); return; }
         const body=await res.json();
         row[field]=newVal;
@@ -266,7 +262,7 @@ function renderEditableTables(){
       if(!roleOp) return;
       statusMark(statusEl,'Saving…','saving');
       const next = !row.isCanceled;
-      const res=await patchCell(CURRENT.scenario,row.siteId,'isCanceled',next);
+      const res=await patchCell(row.siteId,'isCanceled',next);
       if(!res.ok){ statusMark(statusEl,'Failed','failed'); return; }
       const body=await res.json();
       row.isCanceled = next;

@@ -57,7 +57,6 @@ class SchedulePatchIn(BaseModel):
 
 
 class UiKitSchedulePatchIn(BaseModel):
-    scenario: str = "normal"
     siteId: str
     field: str
     value: str | int | bool
@@ -193,13 +192,14 @@ def api_ui_kit_summary(scenario: str = Query(default="normal")) -> dict:
 @app.patch("/api/ui-kit/schedule")
 def api_ui_kit_schedule_patch(
     payload: UiKitSchedulePatchIn,
+    scenario: str = Query(default="normal"),
     x_user_role: str | None = Header(default=None),
     x_user_name: str | None = Header(default=None),
 ) -> dict:
     _role_guard(x_user_role, {"operator"})
 
-    scenario = payload.scenario if payload.scenario in _UIKIT_DATA else "normal"
-    data = _UIKIT_DATA[scenario]
+    scenario_key = scenario if scenario in _UIKIT_DATA else "normal"
+    data = _UIKIT_DATA[scenario_key]
     site_id = payload.siteId
     field = payload.field
 

@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://bloom:bloom@localhost:5432/bloom"
     crawl_interval_seconds: int = 60
     timezone: str = "Asia/Seoul"
+    bloom_debug_ui: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

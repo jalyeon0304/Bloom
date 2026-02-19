@@ -172,12 +172,14 @@ def api_series(site_id: str, points: int = Query(default=30, ge=10, le=180)) -> 
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard() -> str:
-    html_path = Path(__file__).with_name("ui_dashboard.html")
+    html_path = Path(__file__).with_name("ui_summary_main.html")
     return html_path.read_text(encoding="utf-8")
 
 
 @app.get("/ui-kit", response_class=HTMLResponse)
 def ui_kit(scenario: str = Query(default="normal")) -> str:
+    if settings.app_env not in {"dev", "local"} and not settings.bloom_debug_ui:
+        raise HTTPException(status_code=404, detail="not found")
     html_path = Path(__file__).with_name("ui_summary_preview.html")
     html = html_path.read_text(encoding="utf-8")
     return html.replace("__SCENARIO__", scenario)
@@ -229,11 +231,18 @@ def api_ui_kit_schedule_patch(
     }
 
 
+
+
+@app.get("/sites/{site_id}", response_class=HTMLResponse)
+def site_detail(site_id: str) -> str:
+    html_path = Path(__file__).with_name("ui_site_detail.html")
+    html = html_path.read_text(encoding="utf-8")
+    return html.replace("__SITE_ID__", site_id)
+
+
 @app.get("/summary", response_class=HTMLResponse)
-def summary_preview() -> str:
+def summary_page() -> str:
     return dashboard()
-
-
 
 
 @app.get("/api/meta")

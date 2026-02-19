@@ -25,11 +25,13 @@ uvicorn bloom.main:app --reload
 ```
 
 실행 후 아래 경로를 확인할 수 있습니다.
-- `http://127.0.0.1:8000/dashboard` : 운영 대시보드 데모
-- `http://127.0.0.1:8000/ui-kit` : Summary UI preview(기본 normal)
+- `http://127.0.0.1:8000/dashboard` : 운영 Summary 메인(Live API 기본)
+- `http://127.0.0.1:8000/summary` : `/dashboard` alias
+- `http://127.0.0.1:8000/sites/SKK046?date=YYYY-MM-DD` : 개별 현장 상세
+- `http://127.0.0.1:8000/ui-kit` : 개발용 Summary preview(기본 normal)
 - `http://127.0.0.1:8000/ui-kit?scenario=loading|empty|normal|activeHighCapacity` : 상태별 미리보기
 
-`/ui-kit`은 `src/bloom/ui_fixtures/*.json` fixture만 사용하므로 DB/실데이터 없이 항상 렌더링됩니다. `/dashboard`는 기존 동작을 그대로 유지합니다.
+`/ui-kit`은 `src/bloom/ui_fixtures/*.json` fixture만 사용하므로 DB/실데이터 없이 항상 렌더링됩니다. `/dashboard`는 운영용 Summary(Live API 기본) 화면입니다.
 
 ## 서버 데이터 업데이트 주기 권장안
 - 기본(상시 모니터링): **60초**
@@ -86,3 +88,14 @@ uvicorn bloom.main:app --reload
   - `/ui-kit`에서 Data Source를 live로 전환 후 date/reload/export 동작 확인
   - `PATCH /api/schedule`와 `GET /api/export.xlsx`는 `X-User-Role: operator`에서만 성공 확인
 
+
+## 운영 점검 URL
+- `/health`
+- `/dashboard`
+- `/api/meta`
+- `/api/summary?date=YYYY-MM-DD`
+- `/api/export.xlsx?date=YYYY-MM-DD` (operator only)
+
+## Role 설정
+- 상단 Role selector로 `viewer|supporter|operator`를 선택하면 localStorage에 저장됩니다.
+- `viewer/supporter`는 read-only, `operator`만 Enter autosave 및 export 가능.

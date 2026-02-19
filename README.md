@@ -26,10 +26,10 @@ uvicorn bloom.main:app --reload
 
 실행 후 아래 경로를 확인할 수 있습니다.
 - `http://127.0.0.1:8000/dashboard` : 운영 대시보드 데모
-- `http://127.0.0.1:8000/ui-kit` : Summary UI mock 미리보기
-- `http://127.0.0.1:8000/summary?mock=1` : Summary mock 모드
+- `http://127.0.0.1:8000/ui-kit` : Summary UI preview(기본 normal)
+- `http://127.0.0.1:8000/ui-kit?scenario=loading|empty|normal|activeHighCapacity` : 상태별 미리보기
 
-Summary mock은 `docs/ui/fixtures/summary.sample.json` fixture를 사용하므로 백엔드/DB 없이도 항상 렌더링됩니다.
+`/ui-kit`은 `src/bloom/ui_fixtures/*.json` fixture만 사용하므로 DB/실데이터 없이 항상 렌더링됩니다. `/dashboard`는 기존 동작을 그대로 유지합니다.
 
 ## 서버 데이터 업데이트 주기 권장안
 - 기본(상시 모니터링): **60초**
@@ -70,8 +70,8 @@ Summary mock은 `docs/ui/fixtures/summary.sample.json` fixture를 사용하므�
 - **PR0 (문서만)**
   - `docs/ui/SUMMARY_PAGE_SPEC.md`, `docs/api/API_CONTRACT.md` 확인
 - **PR1 (mock 미리보기)**
-  - 서버 실행 후 `http://127.0.0.1:8000/ui-kit` 또는 `http://127.0.0.1:8000/dashboard?mock=1` 접속
-  - 상태 토글 4개(`loading/empty/normal/high-capacity-active`) 확인
+  - 서버 실행 후 `http://127.0.0.1:8000/ui-kit` 접속
+  - `?scenario=loading|empty|normal|activeHighCapacity` 확인
 - **PR2 (차트/필터)**
   - X축 09:00~17:00 고정, 1h 라벨/10min 그리드 확인
   - Y축 max가 active capacity 만단위 올림인지 확인

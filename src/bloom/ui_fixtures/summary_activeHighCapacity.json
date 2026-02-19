@@ -1,0 +1,27 @@
+{
+  "scenario": "activeHighCapacity",
+  "summary": {
+    "siteId": "SKK167",
+    "siteName": "Chungju",
+    "group": "non",
+    "capacityKw": 39600,
+    "currentKw": 35200,
+    "note": "activeHighCapacity 샘플(39,600 active)"
+  },
+  "series": [
+    {"measured_at":"2026-01-01T09:00:00","kw":33000},
+    {"measured_at":"2026-01-01T10:00:00","kw":33400},
+    {"measured_at":"2026-01-01T11:00:00","kw":33800},
+    {"measured_at":"2026-01-01T12:00:00","kw":34200},
+    {"measured_at":"2026-01-01T13:00:00","kw":34500},
+    {"measured_at":"2026-01-01T14:00:00","kw":34800},
+    {"measured_at":"2026-01-01T15:00:00","kw":35000},
+    {"measured_at":"2026-01-01T16:00:00","kw":35200}
+  ],
+  "table": [
+    {"label":"Site ID","value":"SKK167"},
+    {"label":"Group","value":"non"},
+    {"label":"Capacity","value":"39,600 kW"},
+    {"label":"Current","value":"35,200 kW"}
+  ]
+}

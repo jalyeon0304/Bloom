@@ -136,26 +136,33 @@ def api_series(site_id: str, points: int = Query(default=30, ge=10, le=180)) -> 
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard(mock: int = Query(default=0)) -> str:
-    if mock == 1:
-        return ui_kit()
+def dashboard() -> str:
     html_path = Path(__file__).with_name("ui_dashboard.html")
     return html_path.read_text(encoding="utf-8")
 
 
 @app.get("/ui-kit", response_class=HTMLResponse)
-def ui_kit() -> str:
+def ui_kit(scenario: str = Query(default="normal")) -> str:
     html_path = Path(__file__).with_name("ui_summary_preview.html")
-    fixture_path = Path(__file__).parents[2] / "docs" / "ui" / "fixtures" / "summary.sample.json"
-    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
     html = html_path.read_text(encoding="utf-8")
-    return html.replace("__FIXTURE_JSON__", json.dumps(fixture, ensure_ascii=False))
+    return html.replace("__SCENARIO__", scenario)
+
+
+@app.get("/api/ui-kit/summary")
+def api_ui_kit_summary(scenario: str = Query(default="normal")) -> dict:
+    scenario_map = {
+        "normal": "summary_normal.json",
+        "loading": "summary_loading.json",
+        "empty": "summary_empty.json",
+        "activeHighCapacity": "summary_activeHighCapacity.json",
+    }
+    filename = scenario_map.get(scenario, "summary_normal.json")
+    fixture_path = Path(__file__).with_name("ui_fixtures") / filename
+    return json.loads(fixture_path.read_text(encoding="utf-8"))
 
 
 @app.get("/summary", response_class=HTMLResponse)
-def summary_preview(mock: int = Query(default=0)) -> str:
-    if mock == 1:
-        return ui_kit()
+def summary_preview() -> str:
     return dashboard()
 
 

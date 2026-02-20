@@ -34,38 +34,78 @@ http://내PC_IP:8000
 
 ---
 
-## 🚀 Windows 기준 초간단 시작(개인 PC 임시 운영)
+## 🚀 서버 PC를 "처음 켠 직후" 실행하는 절차 (OS별로 분리)
 
-### 1) 내 PC IP 확인
-Windows `cmd`에서:
+아래는 **매일 아침 PC를 켠 뒤** 바로 따라하는 절차입니다.
 
-```bat
+### A. Windows 서버 PC (PowerShell 기준)
+
+#### A-1) 무엇을 열어야 하나?
+- **PowerShell**을 엽니다. (권장: 관리자 권한)
+
+#### A-2) 프로젝트 폴더로 이동
+```powershell
+cd C:\Users\jh240902\bloom
+```
+
+#### A-3) 기존 8000 포트 서버 정리(있을 때만)
+```powershell
+$listener = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($listener) {
+  $listenerPid = $listener.OwningProcess
+  Stop-Process -Id $listenerPid -Force
+}
+```
+
+#### A-4) 가상환경 활성화 + 서버 실행
+```powershell
+.\.venv\Scripts\Activate.ps1
+uvicorn bloom.main:app --host 0.0.0.0 --port 8000
+```
+
+#### A-5) 새 PowerShell 창에서 상태 확인
+```powershell
+(Invoke-WebRequest http://127.0.0.1:8000/health -UseBasicParsing).Content
+(Invoke-WebRequest http://127.0.0.1:8000/dashboard -UseBasicParsing).StatusCode
+```
+
+#### A-6) 사용자 접속 주소
+- 서버 로컬: `http://127.0.0.1:8000/dashboard`
+- 다른 PC: `http://<서버IP>:8000/dashboard`
+- 서버 IP 확인 명령:
+```powershell
 ipconfig
 ```
 
-- `IPv4 주소`를 찾습니다. (예: `192.168.0.25`)
-- 팀원 접속 주소 예시: `http://192.168.0.25:8000`
+---
 
-### 2) Docker Desktop 설치/실행
-1. Docker Desktop 설치
-2. Docker Desktop 실행
-3. WSL 통합 켜기(기본 자동 설정)
+### B. Ubuntu 서버 PC (Terminal 기준)
 
-### 3) 서버 실행
-프로젝트 폴더에서(현재 저장소 기준):
+#### B-1) 무엇을 열어야 하나?
+- **Ubuntu Terminal** (`Ctrl + Alt + T`)
 
+#### B-2) 프로젝트 폴더로 이동
 ```bash
-docker compose up -d db
+cd ~/Bloom
+```
+
+#### B-3) 가상환경 활성화 + 서버 실행
+```bash
 source .venv/bin/activate
 uvicorn bloom.main:app --host 0.0.0.0 --port 8000
 ```
 
-- `docker compose ps`에서 `db`가 `Up`이면 정상
-- `uvicorn` 창에 에러가 없으면 웹 서버 정상
+#### B-4) 새 Terminal에서 상태 확인
+```bash
+curl http://127.0.0.1:8000/health
+curl -I http://127.0.0.1:8000/dashboard
+```
 
-### 4) 접속 확인
-- 내 PC 브라우저: `http://127.0.0.1:8000/dashboard`
-- 팀원 PC 브라우저: `http://내PC_IP:8000/dashboard`
+#### B-5) 사용자 접속 주소
+```bash
+hostname -I
+```
+- 예: `http://10.20.30.40:8000/dashboard`
 
 ---
 

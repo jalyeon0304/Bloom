@@ -41,6 +41,8 @@ uvicorn bloom.main:app --reload
 - `http://127.0.0.1:8000/ui-kit` : 개발용 Summary preview(기본 normal)
 - `http://127.0.0.1:8000/ui-kit?scenario=loading|empty|normal|activeHighCapacity` : 상태별 미리보기
 
+UI 텍스트는 운영 기준으로 **영문(English)**을 기본 사용합니다.
+
 `/ui-kit`은 `src/bloom/ui_fixtures/*.json` fixture만 사용하므로 DB/실데이터 없이 항상 렌더링됩니다. `/dashboard`는 운영용 Summary(Live API 기본) 화면입니다.
 
 ## 서버 데이터 업데이트 주기 권장안

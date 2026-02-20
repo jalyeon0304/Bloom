@@ -717,7 +717,7 @@ def create_login_request(payload: LoginRequestIn) -> dict:
     return {
         "request_id": request_id,
         "status": "pending",
-        "message": "관리자 승인 대기 중입니다.",
+        "message": "Waiting for administrator approval.",
     }
 
 

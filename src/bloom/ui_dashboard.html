@@ -62,12 +62,12 @@
 <body>
 <div class="wrap">
   <div class="top">
-    <h2>급전지시 대시보드 (준중앙/비중앙 분리 로직)</h2>
+    <h2>Dispatch Dashboard (Semi-central / Non-central rules)</h2>
     <div class="tabs">
-      <button class="tab active" data-group="전체">전체</button>
-      <button class="tab" data-group="준중앙">준중앙</button>
-      <button class="tab" data-group="비중앙">비중앙</button>
-      <button class="btn primary" id="startSessionBtn">프로그램 시작(시초기록)</button>
+      <button class="tab active" data-group="All">All</button>
+      <button class="tab" data-group="Semi-central">Semi-central</button>
+      <button class="tab" data-group="Non-central">Non-central</button>
+      <button class="btn primary" id="startSessionBtn">Start Session (Record Open Output)</button>
     </div>
   </div>
 
@@ -75,23 +75,23 @@
     <div class="stack">
       <div class="card">
         <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-          <strong id="selectedTitle">실시간 발전량 그래프</strong>
-          <span class="muted" id="sessionState">시초기록: 미시작</span>
+          <strong id="selectedTitle">Real-time Generation Chart</strong>
+          <span class="muted" id="sessionState">Open-output record: Not started</span>
         </div>
         <div class="chart-wrap"><canvas id="mainChart" width="780" height="220"></canvas><div id="chartTooltip" class="chart-tooltip"></div></div>
       </div>
 
       <div class="card">
-        <strong>핵심 수치표 (준중앙: min/max±5%, 비중앙: target% 시간 내 도달)</strong>
+        <strong>Key Metrics Table (Semi-central: min/max ±5%, Non-central: target% within deadline)</strong>
         <div class="scroll">
           <table>
             <thead>
               <tr>
-                <th>Site ID</th><th>구분</th><th>판정</th>
-                <th>Nameplate</th><th>제출</th><th>시초</th><th>시초-제출편차</th>
-                <th>Min</th><th>Min/제출</th><th>Min/시초</th>
-                <th>Max</th><th>Max/제출</th><th>Max/시초</th>
-                <th>Min T(분)</th><th>Max T(분)</th><th>Target%</th><th>Target kW</th><th>Target/Nameplate</th><th>제한시간(분)</th>
+                <th>Site ID</th><th>Group</th><th>Result</th>
+                <th>Nameplate</th><th>Submitted</th><th>Open</th><th>Open-Submitted gap</th>
+                <th>Min</th><th>Min/Submitted</th><th>Min/Open</th>
+                <th>Max</th><th>Max/Submitted</th><th>Max/Open</th>
+                <th>Min T(min)</th><th>Max T(min)</th><th>Target%</th><th>Target kW</th><th>Target/Nameplate</th><th>Deadline (min)</th>
               </tr>
             </thead>
             <tbody id="metricsBody"></tbody>
@@ -101,18 +101,18 @@
     </div>
 
     <div class="card">
-      <strong>현장 장바구니 (+ 활성화)</strong>
-      <div class="muted">준중앙: min/max + (토글) minT/maxT, 비중앙: target%(0/40/60)+제한시간</div>
+      <strong>Site Basket (+ Activate)</strong>
+      <div class="muted">Semi-central: min/max + (toggle) minT/maxT, Non-central: target%(0/40/60)+deadline</div>
       <div id="masterList"></div>
     </div>
   </div>
 </div>
 
 <script>
-let currentGroup = '전체';
+let currentGroup = 'All';
 let selectedSite = null;
 
-const num = (v)=> (v == null ? '-' : Number(v).toLocaleString('ko-KR'));
+const num = (v)=> (v == null ? '-' : Number(v).toLocaleString('en-US'));
 const pct = (v)=> v == null || Number.isNaN(v) ? '-' : `${v.toFixed(1)}%`;
 
 const chartState = { points: [], rect: null, canvas: null };
@@ -197,7 +197,7 @@ function drawLine(canvas, points, color=getComputedStyle(document.documentElemen
   c.fillStyle = mutedColor;
   c.textAlign = 'center';
   c.textBaseline = 'top';
-  c.fillText('시간', left + pw/2, h - 16);
+  c.fillText('Time', left + pw/2, h - 16);
   c.translate(14, top + ph/2);
   c.rotate(-Math.PI/2);
   c.fillText('kW', 0, 0);
@@ -237,23 +237,23 @@ async function loadSeries(siteId){
 }
 
 async function activatePrompt(site){
-  const submitted = prompt(`${site.site_id} 고객 제출 출력(kW)`, '17000');
+  const submitted = prompt(`${site.site_id} Customer submitted output (kW)`, '17000');
   if(submitted === null) return;
 
   let payload = { site_id: site.site_id, submitted_output_kw: Number(submitted) };
-  if(site.group_type === '준중앙'){
-    const minPower = prompt(`${site.site_id} 제출 최소 출력(min kW)`, '10200');
+  if(site.group_type === 'Semi-central'){
+    const minPower = prompt(`${site.site_id} Submitted minimum output (min kW)`, '10200');
     if(minPower === null) return;
-    const maxPower = prompt(`${site.site_id} 제출 최대 출력(max kW)`, '17000');
+    const maxPower = prompt(`${site.site_id} Submitted maximum output (max kW)`, '17000');
     if(maxPower === null) return;
 
-    const enableTime = confirm(`${site.site_id} 준중앙 target time을 사용할까요? (확인=사용, 취소=미사용)`);
+    const enableTime = confirm(`${site.site_id} Use semi-central target time? (OK=use, Cancel=off)`);
     let minTarget = null;
     let maxTarget = null;
     if (enableTime) {
-      minTarget = prompt(`${site.site_id} min 도달 target time(분)`, '20');
+      minTarget = prompt(`${site.site_id} min target time (min)`, '20');
       if(minTarget === null) return;
-      maxTarget = prompt(`${site.site_id} max 도달 target time(분)`, '40');
+      maxTarget = prompt(`${site.site_id} max target time (min)`, '40');
       if(maxTarget === null) return;
     }
 
@@ -266,9 +266,9 @@ async function activatePrompt(site){
       max_target_minutes: enableTime ? Number(maxTarget) : null,
     };
   } else {
-    const targetPct = prompt(`${site.site_id} 목표 최소출력 target%(0/40/60)`, '40');
+    const targetPct = prompt(`${site.site_id} Target minimum output target%(0/40/60)`, '40');
     if(targetPct === null) return;
-    const deadlineMinutes = prompt(`${site.site_id} 제한 시간(분)`, '30');
+    const deadlineMinutes = prompt(`${site.site_id} Deadline (min)`, '30');
     if(deadlineMinutes === null) return;
     payload = {...payload, target_pct: Number(targetPct), deadline_minutes: Number(deadlineMinutes)};
   }
@@ -289,7 +289,7 @@ async function renderMasterList(){
     row.innerHTML = `<div><div class="name">${site.site_name}<span class="badge">${site.site_id}</span></div><div class="muted">${site.group_type} · Nameplate ${num(site.nameplate_kw)}kW</div></div>`;
     const btn = document.createElement('button');
     btn.className='btn';
-    btn.textContent = site.is_active ? '활성됨' : '+ 추가';
+    btn.textContent = site.is_active ? 'Activated' : '+ Add';
     btn.disabled = site.is_active;
     if(!site.is_active) btn.onclick = ()=>activatePrompt(site);
     row.appendChild(btn);
@@ -300,14 +300,14 @@ async function renderMasterList(){
 function verdictCell(site){
   if(site.mode === 'semi-central'){
     if(site.semi_target_enabled){
-    return site.semi_success ? '<span class="ok">성공(min/max 시간내)</span>' : '<span class="fail">실패(min/max 시간초과)</span>';
+    return site.semi_success ? '<span class="ok">Success (min/max within time)</span>' : '<span class="fail">Fail (min/max timeout)</span>';
   }
-  return site.semi_success ? '<span class="ok">성공(±5% 내)</span>' : '<span class="fail">실패(±5% 이탈)</span>';
+  return site.semi_success ? '<span class="ok">Success (within ±5%)</span>' : '<span class="fail">Fail (out of ±5%)</span>';
   }
   if(site.mode === 'non-central'){
-    if(site.within_deadline === true) return '<span class="ok">성공(시간 내 도달)</span>';
-    if(site.within_deadline === false) return '<span class="fail">미도달/시간초과</span>';
-    return '<span class="muted">대기(세션 미시작)</span>';
+    if(site.within_deadline === true) return '<span class="ok">Success (within deadline)</span>';
+    if(site.within_deadline === false) return '<span class="fail">Not reached / timeout</span>';
+    return '<span class="muted">Waiting (session not started)</span>';
   }
   return '-';
 }
@@ -317,7 +317,7 @@ async function renderTable(){
   const tbody = document.getElementById('metricsBody');
   tbody.innerHTML = '';
   if(!sites.length){
-    tbody.innerHTML = '<tr><td colspan="19" class="muted">활성화된 현장이 없습니다.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="19" class="muted">No activated sites.</td></tr>';
     return;
   }
   if(!selectedSite || !sites.find(s=>s.site_id===selectedSite)) selectedSite = sites[0].site_id;
@@ -356,17 +356,17 @@ async function renderChart(){
   if(!selectedSite) return;
   const values = await loadSeries(selectedSite);
   drawLine(document.getElementById('mainChart'), values);
-  document.getElementById('selectedTitle').textContent = `${selectedSite} 실시간 발전량 그래프`;
+  document.getElementById('selectedTitle').textContent = `${selectedSite} Real-time Generation Chart`;
 }
 
 async function renderSessionState(){
   const status = await getJson('/api/session/status');
   const el = document.getElementById('sessionState');
   if(status.started_at){
-    el.textContent = `시초기록 진행중 (${new Date(status.started_at).toLocaleTimeString()})`;
+    el.textContent = `Open recording active (${new Date(status.started_at).toLocaleTimeString()})`;
     el.classList.add('ok');
   } else {
-    el.textContent = '시초기록: 미시작';
+    el.textContent = 'Open-output record: Not started';
     el.classList.remove('ok');
   }
 }
@@ -393,7 +393,7 @@ function bindChartTooltip(){
     const d = new Date(nearest.measured_at);
     const hh = String(d.getHours()).padStart(2,'0');
     const mm = String(d.getMinutes()).padStart(2,'0');
-    tooltip.innerHTML = `${hh}:${mm} · ${Number(nearest.kw).toLocaleString('ko-KR')} kW`;
+    tooltip.innerHTML = `${hh}:${mm} · ${Number(nearest.kw).toLocaleString('en-US')} kW`;
     tooltip.style.display = 'block';
     tooltip.style.left = `${(nearest.__x / canvas.width) * rect.width}px`;
     tooltip.style.top = `${(nearest.__y / canvas.height) * rect.height}px`;

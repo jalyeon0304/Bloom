@@ -40,7 +40,7 @@
   <div class="card top">
     <div>
       <strong>Summary UI Preview (/ui-kit)</strong>
-      <div class="muted">PR4: fixture/live 토글 + live autosave/export + role 제한</div>
+      <div class="muted">PR4: fixture/live toggle + live autosave/export + role-based restrictions</div>
     </div>
     <div class="btns">
       <button class="btn" data-scenario="loading">loading</button>
@@ -72,7 +72,7 @@
 
   <div class="grid">
     <div class="card">
-      <div class="top"><strong id="title">Summary 차트</strong><span id="subtitle" class="muted"></span></div>
+      <div class="top"><strong id="title">Summary Chart</strong><span id="subtitle" class="muted"></span></div>
       <div class="chart-wrap">
         <canvas id="chart" width="720" height="240"></canvas>
         <div id="tooltip" class="tooltip"></div>
@@ -80,7 +80,7 @@
       <div id="stateBox" class="state-box" style="display:none"></div>
     </div>
     <div class="card">
-      <strong>Summary 테이블</strong>
+      <strong>Summary Table</strong>
       <table><tbody id="tbody"></tbody></table>
       <p class="muted" id="note"></p>
     </div>
@@ -88,14 +88,14 @@
 
   <div class="grid2">
     <div class="card">
-      <strong>준중앙 (semi)</strong>
+      <strong>Semi-central (semi)</strong>
       <table>
         <thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>minKw</th><th>maxKw</th><th>cancel</th><th></th></tr></thead>
         <tbody id="semiBody"></tbody>
       </table>
     </div>
     <div class="card">
-      <strong>비중앙 (non)</strong>
+      <strong>Non-central (non)</strong>
       <table>
         <thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>baseline0900</th><th>minKw</th><th>cancel</th><th></th></tr></thead>
         <tbody id="nonBody"></tbody>
@@ -104,7 +104,7 @@
   </div>
 
   <div class="card">
-    <strong>시스템 로그</strong>
+    <strong>System Logs</strong>
     <div id="logList" class="logs"></div>
   </div>
 </div>
@@ -114,7 +114,7 @@ const hoverState = { idx: -1, points: [] };
 let CURRENT = null;
 let DATA_SOURCE = localStorage.getItem('uikit.source') || 'fixture';
 
-function num(v){ return Number(v || 0).toLocaleString('ko-KR'); }
+function num(v){ return Number(v || 0).toLocaleString('en-US'); }
 function parseToKstMinutes(value){
   const text=String(value||'');
   const hhmm=text.match(/T(\d{2}):(\d{2})/) || text.match(/^(\d{2}):(\d{2})$/);
@@ -146,7 +146,7 @@ function yMaxBySpec(data){ const act=getActiveSites(data); if(!act.length) retur
 function seriesForRender(data){
   const siteId = data?.summary?.siteId;
   if(data.__normalized?.hasPerSite) return data.__normalized.perSite[siteId] || [];
-  return []; // per-site 모드 기준, legacy series는 aggregate 모드용 보존
+  return []; // per-site mode; legacy series kept for aggregate mode
 }
 
 function drawSeries(data){
@@ -209,19 +209,19 @@ function renderStateOnly(text){ document.getElementById('chart').style.display='
 function validate(field, value, row){
   if(['rmccStart','start','finish'].includes(field)){
     const m=/^(\d{2}):(\d{2})$/.exec(String(value));
-    if(!m) return '시간 형식 HH:mm';
+    if(!m) return 'Time format must be HH:mm';
     const mins=Number(m[1])*60+Number(m[2]);
-    if(mins<540 || mins>1020) return '09:00~17:00 범위';
+    if(mins<540 || mins>1020) return 'Must be within 09:00~17:00';
     const startVal = field==='start'?value:row.start;
     const finishVal = field==='finish'?value:row.finish;
     if(startVal && finishVal){
       const a=parseToKstMinutes(`2026-01-01T${startVal}:00+09:00`);
       const b=parseToKstMinutes(`2026-01-01T${finishVal}:00+09:00`);
-      if(a>b) return 'start <= finish 필요';
+      if(a>b) return 'start must be <= finish';
     }
   }
   if(['minKw','maxKw'].includes(field) && value!==''){
-    if(Number.isNaN(Number(value))) return '숫자만 허용';
+    if(Number.isNaN(Number(value))) return 'Number only';
   }
   return null;
 }
@@ -254,7 +254,7 @@ function renderEditableTables(){
       <td class="editable-cell"><input data-field="start" value="${row.start||''}" ${roleOp?'':'readonly'} /></td>
       <td class="editable-cell"><input data-field="finish" value="${row.finish||''}" ${roleOp?'':'readonly'} /></td>
       ${isSemi?`<td class="editable-cell"><input data-field="minKw" value="${row.minKw ?? ''}" ${roleOp?'':'readonly'} /></td><td class="editable-cell"><input data-field="maxKw" value="${row.maxKw ?? ''}" ${roleOp?'':'readonly'} /></td>`:`<td>${row.baselineKw0900 ?? '—'}</td><td class="editable-cell"><input data-field="minKw" value="${row.minKw ?? ''}" ${roleOp?'':'readonly'} /></td>`}
-      <td><button data-field="isCanceled" ${roleOp?'':'disabled'}>${row.isCanceled ? '취소됨' : '정상'}</button></td>
+      <td><button data-field="isCanceled" ${roleOp?'':'disabled'}>${row.isCanceled ? 'Canceled' : 'Active'}</button></td>
       <td class="status"></td>
     `;
 
@@ -301,7 +301,7 @@ function renderEditableTables(){
       if(!res.ok){ statusMark(statusEl,'Failed','failed'); return; }
       const body=await res.json();
       row.isCanceled = next;
-      cancelBtn.textContent = next ? '취소됨' : '정상';
+      cancelBtn.textContent = next ? 'Canceled' : 'Active';
       statusMark(statusEl,'Saved ✓','saved');
       setTimeout(()=>statusMark(statusEl,'',''),1300);
       if(body.logLine){ (CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(body.logLine); renderLogs(); }
@@ -319,7 +319,7 @@ function renderEditableTables(){
 function renderLogs(){
   const box=document.getElementById('logList');
   const logs=(CURRENT?.systemLogs||[]).slice().reverse();
-  box.innerHTML=logs.length?logs.map(l=>`<div>${l}</div>`).join(''):'<div class="muted">로그 없음</div>';
+  box.innerHTML=logs.length?logs.map(l=>`<div>${l}</div>`).join(''):'<div class="muted">No logs</div>';
 }
 
 function deriveTables(data){
@@ -343,7 +343,7 @@ function renderData(data){
   applyScenarioInUrl(scenario);
 
   const summary = normalizedData.summary || {};
-  document.getElementById('title').textContent = `${summary.siteId || '-'} Summary 차트`;
+  document.getElementById('title').textContent = `${summary.siteId || '-'} Summary Chart`;
   document.getElementById('subtitle').textContent = `${summary.group || '-'} · capacity ${num(summary.capacityKw)} kW`;
   document.getElementById('note').textContent = summary.note || '';
 
@@ -355,9 +355,9 @@ function renderData(data){
     tbody.appendChild(tr);
   }
 
-  if(scenario==='loading') return renderStateOnly('로딩 중...');
-  if(scenario==='empty') return renderStateOnly('표시할 데이터가 없습니다.');
-  if(getActiveSites(normalizedData).length === 0) return renderStateOnly('활성 현장이 없습니다. (yMax=10000 fallback)');
+  if(scenario==='loading') return renderStateOnly('Loading...');
+  if(scenario==='empty') return renderStateOnly('No data to display.');
+  if(getActiveSites(normalizedData).length === 0) return renderStateOnly('No active sites. (yMax=10000 fallback)');
 
   document.getElementById('stateBox').style.display='none';
   document.getElementById('chart').style.display='block';

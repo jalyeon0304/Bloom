@@ -23,7 +23,7 @@
 <div class="wrap">
   <div class="card top">
     <div>
-      <button class="btn" id="backBtn">← Summary로</button>
+      <button class="btn" id="backBtn">← Back to Summary</button>
       <strong id="title">SITE</strong>
       <div class="muted" id="subtitle"></div>
     </div>
@@ -68,7 +68,7 @@
 const SITE_ID='__SITE_ID__';
 let CURRENT=null;
 const hover={points:[]};
-const num=v=>Number(v||0).toLocaleString('ko-KR');
+const num=v=>Number(v||0).toLocaleString('en-US');
 const role=()=>localStorage.getItem('uikit.role')||'viewer';
 const isOp=()=>role()==='operator';
 const hh=v=>{const m=String(v||'').match(/T(\d{2}):(\d{2})/)||String(v||'').match(/^(\d{2}):(\d{2})$/); return m?Number(m[1])*60+Number(m[2]):0};
@@ -180,7 +180,7 @@ function renderSched(row,date){
     <td class='editable-cell'><input data-field='finish' value='${row.finish||''}' ${roleOp?'':'readonly'} /></td>
     <td class='editable-cell'><input data-field='minKw' value='${row.minKw??''}' ${roleOp?'':'readonly'} /></td>
     <td>${row.group==='semi'?`<input data-field='maxKw' value='${row.maxKw??''}' ${roleOp?'':'readonly'} />`:'—'}</td>
-    <td><button data-field='isCanceled' ${roleOp?'':'disabled'}>${row.isCanceled?'취소됨':'정상'}</button></td>
+    <td><button data-field='isCanceled' ${roleOp?'':'disabled'}>${row.isCanceled?'Canceled':'Active'}</button></td>
     <td class='status'></td>
   `;
   const st=tr.querySelector('.status');
@@ -202,7 +202,7 @@ function renderSched(row,date){
     const next=!row.isCanceled;
     status(st,'Saving…','saving');
     const r=await patch('isCanceled',next); if(!r.ok){ status(st,'Failed','failed'); return; }
-    const b=await r.json(); row.isCanceled=next; btn.textContent=next?'취소됨':'정상'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300);
+    const b=await r.json(); row.isCanceled=next; btn.textContent=next?'Canceled':'Active'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300);
     if(b.logLine){ (CURRENT.payload.systemLogs||(CURRENT.payload.systemLogs=[])).push(b.logLine); renderLogs(CURRENT.payload.systemLogs); }
     await refreshHistory();
   };
@@ -213,14 +213,14 @@ function renderSched(row,date){
 function renderLogs(lines){
   const box=document.getElementById('logs');
   const only=(lines||[]).filter(l=>String(l).includes(` ${SITE_ID} `)).slice().reverse();
-  box.innerHTML=only.length?only.map(l=>`<div>${l}</div>`).join(''):'<div class="muted">로그 없음</div>';
+  box.innerHTML=only.length?only.map(l=>`<div>${l}</div>`).join(''):'<div class="muted">No logs</div>';
 }
 
 function renderTimeline(items){
   const box=document.getElementById('timeline');
   box.innerHTML=(items||[]).length
     ? items.map(it=>`<div>[${it.occurredAt}] ${it.eventType} · ${it.date} · min:${it.minKw} max:${it.maxKw??'—'} cancel:${it.isCanceled}</div>`).join('')
-    : '<div class="muted">이력 없음 (2026~)</div>';
+    : '<div class="muted">No history (2026~)</div>';
 }
 
 async function refreshHistory(){

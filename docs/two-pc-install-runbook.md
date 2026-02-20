@@ -62,7 +62,7 @@ if ($listener) {
 #### A-4) 가상환경 활성화 + 서버 실행
 ```powershell
 .\.venv\Scripts\Activate.ps1
-python -m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port 8000
+python serve_local.py
 ```
 
 #### A-5) 새 PowerShell 창에서 상태 확인
@@ -94,7 +94,7 @@ cd ~/Bloom
 #### B-3) 가상환경 활성화 + 서버 실행
 ```bash
 source .venv/bin/activate
-python -m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port 8000
+python serve_local.py
 ```
 
 #### B-4) 새 Terminal에서 상태 확인
@@ -443,7 +443,7 @@ if (!(Test-Path ".\.venv\Scripts\Activate.ps1")) {
 
 Write-Host "== 3) Start uvicorn in background ==" -ForegroundColor Cyan
 $job = Start-Process -FilePath "python" `
-    -ArgumentList "-m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port $Port" `
+    -ArgumentList "serve_local.py" `
     -WorkingDirectory $ProjectPath `
     -PassThru
 
@@ -495,7 +495,7 @@ if ($listener) {
 ```
 
 `ExecutablePath` / `CommandLine`이 기대한 경로(`C:\Users\jh240902\bloom`)가 아니면,
-해당 프로세스를 종료 후 프로젝트 폴더에서 다시 `python -m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port 8000`으로 실행하세요.
+해당 프로세스를 종료 후 프로젝트 폴더에서 다시 `python serve_local.py`로 실행하세요.
 
 ### 그래도 구버전이면: 강제 정렬(Reset) 5단계
 아래 순서를 **그대로** 실행하면, 현재 폴더 코드만 사용하도록 정리됩니다.
@@ -517,8 +517,8 @@ python -m pip install -e .
 # 4) 실제 import 경로 확인 (반드시 C:\Users\jh240902\bloom\src\bloom\__init__.py 여야 함)
 python -c "import bloom; print(bloom.__file__)"
 
-# 5) 서버 실행 (src 강제)
-python -m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port 8000
+# 5) 서버 실행 (로컬 src 강제)
+python serve_local.py
 ```
 
 위 4번 경로가 다르면, 현재 PowerShell이 다른 폴더를 참조 중인 상태입니다.
@@ -539,8 +539,8 @@ $py = "C:\Users\jh240902\bloom\.venv\Scripts\python.exe"
 # 3) 현재 import 경로 확인 (이 경로가 아니면 실패)
 & $py -c "import bloom.main; print(bloom.main.__file__)"
 
-# 4) 서버 실행 (src 강제)
-& $py -m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port 8000
+# 4) 서버 실행 (로컬 src 강제)
+& $py serve_local.py
 ```
 
 새 PowerShell 창에서 검증:

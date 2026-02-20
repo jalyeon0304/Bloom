@@ -27,7 +27,7 @@
     .editable-cell input { width:90px; padding:4px 6px; border:1px solid #d1d5db; border-radius:6px; }
     .cell-hl { background:#eff6ff; transition: background .8s; }
     .cell-err { outline: 2px solid var(--err); }
-    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .grid2 { display:grid; grid-template-columns:1fr; gap:12px; }
     .logs { max-height:140px; overflow:auto; background:#f9fafb; padding:8px; border-radius:8px; font-size:12px; }
     a.site-link { color:#1d4ed8; text-decoration:none; font-weight:600; }
     @media (max-width:900px){ .grid,.grid2{ grid-template-columns:1fr; } }
@@ -57,7 +57,7 @@
   </div>
   <div class="grid2">
     <div class="card"><strong>Semi-central</strong><table><thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>minKw</th><th>maxKw</th><th>cancel</th><th></th></tr></thead><tbody id="semiBody"></tbody></table></div>
-    <div class="card"><strong>Non-central</strong><table><thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>baseline0900</th><th>minKw</th><th>cancel</th><th></th></tr></thead><tbody id="nonBody"></tbody></table></div>
+    <div class="card"><strong>Non-central</strong><div class="muted" style="margin-bottom:8px;">baseline0900 = measured output nearest to 09:00 (kW)</div><table><thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>baseline0900</th><th>minKw</th><th>cancel</th><th></th></tr></thead><tbody id="nonBody"></tbody></table></div>
   </div>
   <div class="card"><strong>System Logs</strong><div id="logList" class="logs"></div></div>
 </div>
@@ -70,7 +70,23 @@ const hhmmMin=v=>{const m=String(v||'').match(/T(\d{2}):(\d{2})/)||String(v||'')
 const tlabel=m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
 function activeSites(d){return (d.sites||[]).filter(s=>s.isActive && !s.isCanceled)}
 function yMax(d){const caps=activeSites(d).map(s=>Number(s.capacityKw||0)); return caps.length?Math.ceil(Math.max(...caps)/10000)*10000:10000}
-function deriveTables(d){ if(d.semiTable&&d.nonTable) return; const semi=[],non=[]; for(const s of (d.sites||[])){ const base={siteId:s.siteId, rmccStart:s.rmccStart||'09:00', start:s.start||'09:20', finish:s.finish||'10:20', minKw:s.minKw??5000, isCanceled:!!s.isCanceled}; if(s.group==='semi') semi.push({...base,maxKw:s.maxKw??10000}); else non.push({...base,baselineKw0900:s.baselineKw0900??'—'});} d.semiTable=semi; d.nonTable=non;}
+function deriveTables(d){
+  if(d.semiTable&&d.nonTable) {
+    d.semiTable = (d.semiTable||[]).slice().sort((a,b)=>String(a.siteId).localeCompare(String(b.siteId)));
+    d.nonTable = (d.nonTable||[]).slice().sort((a,b)=>String(a.siteId).localeCompare(String(b.siteId)));
+    return;
+  }
+  const semi=[],non=[];
+  for(const s of (d.sites||[])){
+    const base={siteId:s.siteId, rmccStart:s.rmccStart||'09:00', start:s.start||'09:20', finish:s.finish||'10:20', minKw:s.minKw??5000, isCanceled:!!s.isCanceled};
+    if(s.group==='semi') semi.push({...base,maxKw:s.maxKw??10000});
+    else non.push({...base,baselineKw0900:s.baselineKw0900??'—'});
+  }
+  semi.sort((a,b)=>String(a.siteId).localeCompare(String(b.siteId)));
+  non.sort((a,b)=>String(a.siteId).localeCompare(String(b.siteId)));
+  d.semiTable=semi;
+  d.nonTable=non;
+}
 function renderChart(d){ const c=document.getElementById('chart').getContext('2d'); const w=720,h=240,p={l:52,r:12,t:10,b:30},pw=w-p.l-p.r,ph=h-p.t-p.b; c.clearRect(0,0,w,h); const xs=540,xe=1020, ym=yMax(d), toX=m=>p.l+((m-xs)/(xe-xs))*pw, toY=v=>p.t+(1-(v/ym))*ph;
 for(let m=xs;m<=xe;m+=10){const x=toX(m),maj=m%60===0;c.strokeStyle=maj?'#e5e7eb':'#f1f5f9';c.beginPath();c.moveTo(x,p.t);c.lineTo(x,h-p.b);c.stroke(); if(maj){c.fillStyle='#6b7280';c.font='11px sans-serif';c.fillText(tlabel(m),x-14,h-10)}}
 for(let y=0;y<=ym;y+=10000){const py=toY(y);c.strokeStyle='#e5e7eb';c.beginPath();c.moveTo(p.l,py);c.lineTo(w-p.r,py);c.stroke();c.fillStyle='#6b7280';c.font='11px sans-serif';c.fillText(String(y),4,py+3)}

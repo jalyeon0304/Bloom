@@ -449,9 +449,22 @@ def _hourly_points(site_id: str, capacity_kw: int, date: str) -> list[dict]:
     return points
 
 
+def _summary_master_rows(limit_non: int = 8) -> list[dict]:
+    masters = list_master_sites()
+    semi_ids = {"SKK046", "SKK056", "SKK144", "SKK167"}
+
+    semi_rows = [m for m in masters if m.get("site_id") in semi_ids]
+    semi_rows.sort(key=lambda x: x.get("site_id", ""))
+
+    non_rows = [m for m in masters if m.get("site_id") not in semi_ids]
+    non_rows.sort(key=lambda x: ((not str(x.get("site_id", "")).startswith("SKK")), x.get("site_id", "")))
+
+    return semi_rows + non_rows[:limit_non]
+
+
 def _build_summary_payload(date: str | None = None) -> dict:
     used_date = _server_date(date)
-    masters = list_master_sites()[:8]
+    masters = _summary_master_rows()
     store = _load_schedule_store()
     date_overrides = store["byDate"].get(used_date, {})
 

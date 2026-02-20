@@ -240,14 +240,24 @@ def api_ui_kit_schedule_patch(
 
 
 
-@app.get("/sites/{site_id}", response_class=HTMLResponse)
-def site_detail(site_id: str) -> str:
+def _render_site_detail(site_id: str) -> HTMLResponse:
     html_path = Path(__file__).with_name("ui_site_detail.html")
     html = html_path.read_text(encoding="utf-8")
     return HTMLResponse(
         content=html.replace("__SITE_ID__", site_id),
         headers={"X-Bloom-UI": UI_MARKER_SITE_DETAIL, "X-Bloom-Site": site_id},
     )
+
+
+@app.get("/sites/{site_id}", response_class=HTMLResponse)
+@app.get("/sites/{site_id}/", response_class=HTMLResponse)
+def site_detail(site_id: str) -> HTMLResponse:
+    return _render_site_detail(site_id)
+
+
+@app.get("/site/{site_id}", response_class=HTMLResponse)
+def site_detail_legacy(site_id: str) -> HTMLResponse:
+    return _render_site_detail(site_id)
 
 
 @app.get("/summary", response_class=HTMLResponse)
@@ -262,6 +272,21 @@ def api_version() -> dict:
         "siteDetailUiMarker": UI_MARKER_SITE_DETAIL,
         "hasSummaryRoute": True,
         "hasSiteDetailRoute": True,
+    }
+
+
+@app.get("/api/routes")
+def api_routes() -> dict:
+    paths = sorted(
+        {
+            route.path
+            for route in app.routes
+            if getattr(route, "path", "").startswith("/")
+        }
+    )
+    return {
+        "count": len(paths),
+        "paths": paths,
     }
 
 

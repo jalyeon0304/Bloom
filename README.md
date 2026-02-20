@@ -28,6 +28,7 @@ uvicorn bloom.main:app --reload
 - `http://127.0.0.1:8000/dashboard` : 운영 Summary 메인(Live API 기본)
 - `http://127.0.0.1:8000/summary` : `/dashboard` alias
 - `http://127.0.0.1:8000/sites/SKK046?date=YYYY-MM-DD` : 개별 현장 상세
+- `http://127.0.0.1:8000/site/SKK046?date=YYYY-MM-DD` : 개별 현장 상세(legacy alias)
 - `http://127.0.0.1:8000/ui-kit` : 개발용 Summary preview(기본 normal)
 - `http://127.0.0.1:8000/ui-kit?scenario=loading|empty|normal|activeHighCapacity` : 상태별 미리보기
 
@@ -92,6 +93,7 @@ uvicorn bloom.main:app --reload
 ## 운영 점검 URL
 - `/health`
 - `/api/version` (현재 서버가 summary/site-detail 라우트를 포함한 빌드인지 확인)
+- `/api/routes` (실행 중 서버가 가진 실제 라우트 목록 확인)
 - `/dashboard`
 - `/api/meta`
 - `/api/summary?date=YYYY-MM-DD`

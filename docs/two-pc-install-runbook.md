@@ -522,3 +522,33 @@ python -m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port 8000
 ```
 
 위 4번 경로가 다르면, 현재 PowerShell이 다른 폴더를 참조 중인 상태입니다.
+
+### `/dashboard=200`인데 `/summary`, `/sites/...`만 404일 때 (핵심 복구)
+아래 명령은 **venv의 python.exe를 절대경로로 고정**해서 실행합니다.
+
+```powershell
+cd C:\Users\jh240902\bloom
+
+# 1) 8000 포트 점유 프로세스 종료
+$listener = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($listener) { Stop-Process -Id $listener.OwningProcess -Force }
+
+# 2) 반드시 venv python으로 실행
+$py = "C:\Users\jh240902\bloom\.venv\Scripts\python.exe"
+
+# 3) 현재 import 경로 확인 (이 경로가 아니면 실패)
+& $py -c "import bloom.main; print(bloom.main.__file__)"
+
+# 4) 서버 실행 (src 강제)
+& $py -m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port 8000
+```
+
+새 PowerShell 창에서 검증:
+
+```powershell
+(Invoke-WebRequest http://127.0.0.1:8000/dashboard -UseBasicParsing).StatusCode
+(Invoke-WebRequest http://127.0.0.1:8000/summary -UseBasicParsing).StatusCode
+(Invoke-WebRequest "http://127.0.0.1:8000/sites/SKK046?date=2026-01-01" -UseBasicParsing).StatusCode
+```
+
+기대값: `200 / 200 / 200`.

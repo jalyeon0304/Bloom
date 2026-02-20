@@ -97,9 +97,10 @@ uvicorn bloom.main:app --reload
 
 PowerShell에서 빠르게 확인:
 ```powershell
-(Invoke-WebRequest http://127.0.0.1:8000/api/version -UseBasicParsing).Content
+(Invoke-WebRequest http://127.0.0.1:8000/health -UseBasicParsing).Content
 ```
 응답의 `mainModulePath`가 실제 실행하려는 프로젝트 경로(예: `C:\Users\...\bloom\src\bloom\main.py`)인지 확인하세요.
+또한 `hasSummaryRoute=true`, `hasSiteDetailRoute=true`인지 함께 확인하세요.
 - `/dashboard`
 - `/api/meta`
 - `/api/summary?date=YYYY-MM-DD`

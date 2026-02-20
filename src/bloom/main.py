@@ -123,9 +123,21 @@ def _make_logline(site_id: str, field: str, old: str, new: str, user: str | None
     return f"[{stamp}] {site_id} {field} : {old} → {new} (user:{who})"
 
 
+def _has_route(path: str) -> bool:
+    return any(getattr(route, "path", "") == path for route in app.routes)
+
+
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "env": settings.app_env}
+def health() -> dict:
+    return {
+        "status": "ok",
+        "env": settings.app_env,
+        "mainModulePath": __file__,
+        "dashboardUiMarker": UI_MARKER_SUMMARY,
+        "siteDetailUiMarker": UI_MARKER_SITE_DETAIL,
+        "hasSummaryRoute": _has_route("/summary"),
+        "hasSiteDetailRoute": _has_route("/sites/{site_id}"),
+    }
 
 
 @app.get("/api/master-sites")

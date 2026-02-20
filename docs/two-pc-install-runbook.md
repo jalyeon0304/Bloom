@@ -48,6 +48,8 @@ http://내PC_IP:8000
 cd C:\Users\jh240902\bloom
 ```
 
+> 중요: `bloom` 폴더 **안에서** 실행해야 합니다. `C:\Users\jh240902` 상위 폴더에서 실행하면 예전 설치본이 잡힐 수 있습니다.
+
 #### A-3) 기존 8000 포트 서버 정리(있을 때만)
 ```powershell
 $listener = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -60,7 +62,7 @@ if ($listener) {
 #### A-4) 가상환경 활성화 + 서버 실행
 ```powershell
 .\.venv\Scripts\Activate.ps1
-uvicorn bloom.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port 8000
 ```
 
 #### A-5) 새 PowerShell 창에서 상태 확인
@@ -92,7 +94,7 @@ cd ~/Bloom
 #### B-3) 가상환경 활성화 + 서버 실행
 ```bash
 source .venv/bin/activate
-uvicorn bloom.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port 8000
 ```
 
 #### B-4) 새 Terminal에서 상태 확인
@@ -441,7 +443,7 @@ if (!(Test-Path ".\.venv\Scripts\Activate.ps1")) {
 
 Write-Host "== 3) Start uvicorn in background ==" -ForegroundColor Cyan
 $job = Start-Process -FilePath "python" `
-    -ArgumentList "-m uvicorn bloom.main:app --host 0.0.0.0 --port $Port" `
+    -ArgumentList "-m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port $Port" `
     -WorkingDirectory $ProjectPath `
     -PassThru
 
@@ -493,4 +495,4 @@ if ($listener) {
 ```
 
 `ExecutablePath` / `CommandLine`이 기대한 경로(`C:\Users\jh240902\bloom`)가 아니면,
-해당 프로세스를 종료 후 프로젝트 폴더에서 다시 `uvicorn bloom.main:app --host 0.0.0.0 --port 8000`으로 실행하세요.
+해당 프로세스를 종료 후 프로젝트 폴더에서 다시 `python -m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port 8000`으로 실행하세요.

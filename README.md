@@ -24,6 +24,10 @@ cp .env.example .env
 uvicorn bloom.main:app --reload
 ```
 
+> `src/` 레이아웃 프로젝트라서, 구버전 설치본이 잡히는 경우 아래처럼 실행하면 현재 폴더 코드를 강제로 사용합니다.
+>
+> `python -m uvicorn --app-dir src bloom.main:app --reload`
+
 실행 후 아래 경로를 확인할 수 있습니다.
 - `http://127.0.0.1:8000/dashboard` : 운영 Summary 메인(Live API 기본)
 - `http://127.0.0.1:8000/summary` : `/dashboard` alias

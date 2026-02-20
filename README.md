@@ -91,6 +91,7 @@ uvicorn bloom.main:app --reload
 
 ## 운영 점검 URL
 - `/health`
+- `/api/version` (현재 서버가 summary/site-detail 라우트를 포함한 빌드인지 확인)
 - `/dashboard`
 - `/api/meta`
 - `/api/summary?date=YYYY-MM-DD`

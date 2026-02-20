@@ -23,6 +23,9 @@ from bloom.demo_data import (
 
 app = FastAPI(title=settings.app_name)
 
+UI_MARKER_SUMMARY = "summary-main-v1"
+UI_MARKER_SITE_DETAIL = "site-detail-v1"
+
 
 class LoginRequestIn(BaseModel):
     username: str = Field(min_length=2, max_length=50)
@@ -174,7 +177,10 @@ def api_series(site_id: str, points: int = Query(default=30, ge=10, le=180)) -> 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard() -> str:
     html_path = Path(__file__).with_name("ui_summary_main.html")
-    return html_path.read_text(encoding="utf-8")
+    return HTMLResponse(
+        content=html_path.read_text(encoding="utf-8"),
+        headers={"X-Bloom-UI": UI_MARKER_SUMMARY},
+    )
 
 
 @app.get("/ui-kit", response_class=HTMLResponse)
@@ -238,12 +244,25 @@ def api_ui_kit_schedule_patch(
 def site_detail(site_id: str) -> str:
     html_path = Path(__file__).with_name("ui_site_detail.html")
     html = html_path.read_text(encoding="utf-8")
-    return html.replace("__SITE_ID__", site_id)
+    return HTMLResponse(
+        content=html.replace("__SITE_ID__", site_id),
+        headers={"X-Bloom-UI": UI_MARKER_SITE_DETAIL, "X-Bloom-Site": site_id},
+    )
 
 
 @app.get("/summary", response_class=HTMLResponse)
 def summary_page() -> str:
     return dashboard()
+
+
+@app.get("/api/version")
+def api_version() -> dict:
+    return {
+        "dashboardUiMarker": UI_MARKER_SUMMARY,
+        "siteDetailUiMarker": UI_MARKER_SITE_DETAIL,
+        "hasSummaryRoute": True,
+        "hasSiteDetailRoute": True,
+    }
 
 
 @app.get("/api/meta")

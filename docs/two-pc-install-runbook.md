@@ -411,6 +411,11 @@ Write-Host "== 4) Verify health/dashboard ==" -ForegroundColor Cyan
 $health = Invoke-WebRequest "$HostUrl/health" -UseBasicParsing
 if ($health.StatusCode -ne 200) { throw "health check failed: $($health.StatusCode)" }
 
+$healthJson = $health.Content | ConvertFrom-Json
+if (-not ($healthJson.PSObject.Properties.Name -contains "mainModulePath")) {
+    Write-Host "⚠️ 현재 /health 응답이 구버전 형식(status/env만)입니다. 다른 폴더/이전 프로세스가 실행 중일 가능성이 큽니다." -ForegroundColor Yellow
+}
+
 $html = (Invoke-WebRequest "$HostUrl/dashboard" -UseBasicParsing).Content
 $hasNew = $html -like "*Summary (/dashboard)*"
 $hasOld = $html -like "*급전지시 대시보드 (준중앙/비중앙 분리 로직)*"
@@ -433,3 +438,19 @@ Start-Process "$HostUrl/dashboard"
 
 Write-Host "`nDone. If needed, stop server with: Stop-Process -Id $($job.Id) -Force" -ForegroundColor Cyan
 ```
+
+### `{"status":"ok","env":"dev"}` 만 보일 때(구버전 프로세스 판별)
+아래 명령으로 **실제로 8000 포트를 잡고 있는 프로세스의 실행 경로**를 확인하세요.
+
+```powershell
+$listener = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($listener) {
+  $listenerPid = $listener.OwningProcess
+  Get-CimInstance Win32_Process -Filter "ProcessId=$listenerPid" | Select-Object ProcessId, Name, ExecutablePath, CommandLine
+} else {
+  Write-Host "8000 포트 리스너가 없습니다."
+}
+```
+
+`ExecutablePath` / `CommandLine`이 기대한 경로(`C:\Users\jh240902\bloom`)가 아니면,
+해당 프로세스를 종료 후 프로젝트 폴더에서 다시 `uvicorn bloom.main:app --host 0.0.0.0 --port 8000`으로 실행하세요.

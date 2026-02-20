@@ -272,6 +272,7 @@ def api_version() -> dict:
         "siteDetailUiMarker": UI_MARKER_SITE_DETAIL,
         "hasSummaryRoute": True,
         "hasSiteDetailRoute": True,
+        "mainModulePath": __file__,
     }
 
 

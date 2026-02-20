@@ -94,6 +94,12 @@ uvicorn bloom.main:app --reload
 - `/health`
 - `/api/version` (현재 서버가 summary/site-detail 라우트를 포함한 빌드인지 확인)
 - `/api/routes` (실행 중 서버가 가진 실제 라우트 목록 확인)
+
+PowerShell에서 빠르게 확인:
+```powershell
+(Invoke-WebRequest http://127.0.0.1:8000/api/version -UseBasicParsing).Content
+```
+응답의 `mainModulePath`가 실제 실행하려는 프로젝트 경로(예: `C:\Users\...\bloom\src\bloom\main.py`)인지 확인하세요.
 - `/dashboard`
 - `/api/meta`
 - `/api/summary?date=YYYY-MM-DD`

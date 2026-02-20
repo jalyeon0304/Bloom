@@ -38,6 +38,12 @@ uvicorn bloom.main:app --reload
 python serve_local.py
 ```
 
+`serve_local.py`가 없다면(서버에 최신 코드 미반영), 먼저 `git pull` 후 다시 실행하세요.
+임시 대체 실행:
+```bash
+python -m uvicorn --app-dir src bloom.main:app --reload
+```
+
 실행 후 아래 경로를 확인할 수 있습니다.
 - `http://127.0.0.1:8000/dashboard` : 운영 Summary 메인(Live API 기본)
 - `http://127.0.0.1:8000/summary` : `/dashboard` alias

@@ -50,6 +50,22 @@ cd C:\Users\jh240902\bloom
 
 > 중요: `bloom` 폴더 **안에서** 실행해야 합니다. `C:\Users\jh240902` 상위 폴더에서 실행하면 예전 설치본이 잡힐 수 있습니다.
 
+#### A-2.5) `serve_local.py` 파일 존재 확인
+```powershell
+Test-Path .\serve_local.py
+```
+
+- `True`가 나오면 다음 단계로 진행
+- `False`가 나오면 아래를 먼저 실행
+  ```powershell
+  git pull
+  ```
+
+그래도 파일이 없으면 임시로 아래 명령으로 실행하세요.
+```powershell
+python -m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port 8000
+```
+
 #### A-3) 기존 8000 포트 서버 정리(있을 때만)
 ```powershell
 $listener = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -540,7 +556,11 @@ $py = "C:\Users\jh240902\bloom\.venv\Scripts\python.exe"
 & $py -c "import bloom.main; print(bloom.main.__file__)"
 
 # 4) 서버 실행 (로컬 src 강제)
-& $py serve_local.py
+if (Test-Path .\serve_local.py) {
+  & $py serve_local.py
+} else {
+  & $py -m uvicorn --app-dir src bloom.main:app --host 0.0.0.0 --port 8000
+}
 ```
 
 새 PowerShell 창에서 검증:

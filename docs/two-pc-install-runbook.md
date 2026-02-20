@@ -367,3 +367,69 @@ sudo systemctl status bloom
   - `python -m venv .venv`
   - `.venv\Scripts\activate`
 - 나머지 순서는 동일합니다(클론 → 의존성 → DB → uvicorn 실행)
+
+### Windows PowerShell 원샷 재시작 + 버전 확인 스크립트
+아래 스크립트는 `8000` 포트 점유 프로세스를 정리하고, 현재 폴더의 코드로 서버를 다시 띄운 뒤,
+`/dashboard`가 신버전(`Summary (/dashboard)`)인지 구버전인지 확인합니다.
+
+> 주의: PowerShell의 `$PID`는 예약 변수입니다. 사용자 변수명은 반드시 `$listenerPid`처럼 다른 이름을 사용하세요.
+
+```powershell
+$ErrorActionPreference = "Stop"
+
+$ProjectPath = "C:\Users\jh240902\bloom"
+$Port = 8000
+$HostUrl = "http://127.0.0.1:$Port"
+
+Write-Host "== 1) Stop old listener on port $Port if exists ==" -ForegroundColor Cyan
+$listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($listener) {
+    $listenerPid = $listener.OwningProcess
+    Write-Host "Found listener PID=$listenerPid, stopping..." -ForegroundColor Yellow
+    Stop-Process -Id $listenerPid -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+} else {
+    Write-Host "No listener on port $Port" -ForegroundColor Green
+}
+
+Write-Host "== 2) Move to project and activate venv ==" -ForegroundColor Cyan
+Set-Location $ProjectPath
+if (!(Test-Path ".\.venv\Scripts\Activate.ps1")) {
+    throw "venv not found: $ProjectPath\.venv\Scripts\Activate.ps1"
+}
+. .\.venv\Scripts\Activate.ps1
+
+Write-Host "== 3) Start uvicorn in background ==" -ForegroundColor Cyan
+$job = Start-Process -FilePath "python" `
+    -ArgumentList "-m uvicorn bloom.main:app --host 0.0.0.0 --port $Port" `
+    -WorkingDirectory $ProjectPath `
+    -PassThru
+
+Start-Sleep -Seconds 2
+
+Write-Host "== 4) Verify health/dashboard ==" -ForegroundColor Cyan
+$health = Invoke-WebRequest "$HostUrl/health" -UseBasicParsing
+if ($health.StatusCode -ne 200) { throw "health check failed: $($health.StatusCode)" }
+
+$html = (Invoke-WebRequest "$HostUrl/dashboard" -UseBasicParsing).Content
+$hasNew = $html -like "*Summary (/dashboard)*"
+$hasOld = $html -like "*급전지시 대시보드 (준중앙/비중앙 분리 로직)*"
+
+Write-Host "Health: $($health.StatusCode)" -ForegroundColor Green
+Write-Host "New UI marker found: $hasNew"
+Write-Host "Old UI marker found: $hasOld"
+
+if ($hasNew -and -not $hasOld) {
+    Write-Host "✅ NEW dashboard is serving." -ForegroundColor Green
+} elseif ($hasOld) {
+    Write-Host "⚠️ OLD dashboard content detected. Check running path/process." -ForegroundColor Yellow
+} else {
+    Write-Host "⚠️ Neither marker matched. Inspect raw HTML manually." -ForegroundColor Yellow
+}
+
+Write-Host "Server PID: $($job.Id)"
+Write-Host "Opening browser..."
+Start-Process "$HostUrl/dashboard"
+
+Write-Host "`nDone. If needed, stop server with: Stop-Process -Id $($job.Id) -Force" -ForegroundColor Cyan
+```

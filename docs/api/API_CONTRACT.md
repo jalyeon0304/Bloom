@@ -1,7 +1,7 @@
 # API Contract
 
 ## Headers (role)
-- X-User-Role: operator|supporter|viewer
+- X-User-Role: operator|viewer
 - X-User-Name: string (optional)
 
 ## GET /api/meta
@@ -9,7 +9,7 @@ Response:
 {
   "timezone": "Asia/Seoul",
   "serverDateKst": "YYYY-MM-DD",
-  "baselineTime": "09:00",
+  "baselineTime": "10:00",
   "endTime": "17:00"
 }
 
@@ -19,7 +19,7 @@ Response (minimal):
 {
   "date": "YYYY-MM-DD",
   "timezone": "Asia/Seoul",
-  "baselineTime": "09:00",
+  "baselineTime": "10:00",
   "endTime": "17:00",
   "summary": {},
   "timeseriesBySiteId": { "SKK167": [{ "measured_at": "YYYY-MM-DDTHH:mm:ss+09:00", "kw": 12345 }] },
@@ -34,9 +34,9 @@ Response (minimal):
       "capacityKw": 39600,
       "isActive": false,
       "isCanceled": false,
-      "baselineKw0900": 1200,
-      "rmccStart": "09:10",
-      "start": "09:30",
+      "baselineKw1000": 1200,
+      "rmccStart": "10:10",
+      "start": "10:30",
       "finish": "11:30",
       "minKw": 5000,
       "maxKw": null

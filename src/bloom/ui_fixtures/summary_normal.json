@@ -22,13 +22,6 @@
       "capacityKw": 8910,
       "isActive": false,
       "isCanceled": false
-    },
-    {
-      "siteId": "KMP000",
-      "group": "non",
-      "capacityKw": 6000,
-      "isActive": false,
-      "isCanceled": false
     }
   ],
   "series": [

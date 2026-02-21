@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -28,7 +28,7 @@
       <div class="muted" id="subtitle"></div>
     </div>
     <div>
-      <label class="muted">Role <select id="roleSel"><option value="viewer">viewer</option><option value="supporter">supporter</option><option value="operator">operator</option></select></label>
+      <label class="muted">Role <select id="roleSel"><option value="viewer">viewer</option><option value="operator">operator</option></select></label>
       <label class="muted">Name <input id="nameInput"/></label>
       <label class="muted">Date <input id="dateInput" type="date"/></label>
       <button class="btn" id="reloadBtn">Reload</button>
@@ -80,7 +80,7 @@ function status(el,t,c){ el.className=`status ${c||''}`; el.textContent=t; }
 function valid(f,v,row){
   if(['rmccStart','start','finish'].includes(f)){
     const m=/^(\d{2}):(\d{2})$/.exec(String(v)); if(!m) return 'HH:mm';
-    const mins=+m[1]*60 + +m[2]; if(mins<540||mins>1020) return '09:00~17:00';
+    const mins=+m[1]*60 + +m[2]; if(mins<600||mins>1020) return '10:00~17:00';
     const sv=f==='start'?v:row.start, fv=f==='finish'?v:row.finish;
     if(sv&&fv&&hh(`2026-01-01T${sv}:00+09:00`)>hh(`2026-01-01T${fv}:00+09:00`)) return 'start<=finish';
   }
@@ -123,7 +123,7 @@ function render(){
   const last=points.length?points[points.length-1].kw:null;
   document.getElementById('kpi').innerHTML=`
     <tr><td>capacityKw</td><td>${num(site.capacityKw)}</td></tr>
-    <tr><td>baselineKw0900</td><td>${site.baselineKw0900??'—'}</td></tr>
+    <tr><td>baselineKw1000</td><td>${site.baselineKw1000??site.baselineKw0900??'—'}</td></tr>
     <tr><td>latestKw</td><td>${last??'—'}</td></tr>
     <tr><td>createdCount (2026~)</td><td>${historySummary.createdCount||0}</td></tr>
     <tr><td>updatedCount (2026~)</td><td>${historySummary.updatedCount||0}</td></tr>
@@ -139,12 +139,12 @@ function render(){
 function renderChart(points,site){
   const c=document.getElementById('chart').getContext('2d');
   const w=920,h=260,p={l:52,r:12,t:10,b:30},pw=w-p.l-p.r,ph=h-p.t-p.b;
-  const xs=540,xe=1020,ym=yMax(site),toX=m=>p.l+((m-xs)/(xe-xs))*pw,toY=v=>p.t+(1-(v/ym))*ph;
+  const xs=600,xe=1020,ym=yMax(site),toX=m=>p.l+((m-xs)/(xe-xs))*pw,toY=v=>p.t+(1-(v/ym))*ph;
   c.clearRect(0,0,w,h);
   for(let m=xs;m<=xe;m+=10){ const x=toX(m),maj=m%60===0; c.strokeStyle=maj?'#e5e7eb':'#f1f5f9'; c.beginPath(); c.moveTo(x,p.t); c.lineTo(x,h-p.b); c.stroke(); if(maj){ c.fillStyle='#6b7280'; c.font='11px sans-serif'; c.fillText(tl(m),x-14,h-10);} }
   for(let y=0;y<=ym;y+=10000){ const py=toY(y); c.strokeStyle='#e5e7eb'; c.beginPath(); c.moveTo(p.l,py); c.lineTo(w-p.r,py); c.stroke(); c.fillStyle='#6b7280'; c.font='11px sans-serif'; c.fillText(String(y),4,py+3); }
 
-  const s=(points||[]).map(p=>({...p,mins:hh(p.measured_at),kw:Number(p.kw||0)})).filter(p=>p.mins>=540&&p.mins<=1020);
+  const s=(points||[]).map(p=>({...p,mins:hh(p.measured_at),kw:Number(p.kw||0)})).filter(p=>p.mins>=600&&p.mins<=1020);
   if(s.length<2){ hover.points=[]; return; }
   c.strokeStyle='#2563eb'; c.lineWidth=2; c.beginPath();
   const pts=[];

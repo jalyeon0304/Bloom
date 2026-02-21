@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import re
+import warnings
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -9,6 +10,11 @@ from random import Random
 
 
 SEMI_CENTRAL_SITE_IDS = {"SKK046", "SKK056", "SKK144", "SKK167"}
+SKK_SITE_RE = re.compile(r"^SKK\d{3}$")
+
+
+def _is_skk_site(site_id: str) -> bool:
+    return bool(SKK_SITE_RE.match(site_id))
 
 
 @dataclass
@@ -62,6 +68,9 @@ def _load_site_masters() -> list[SiteMaster]:
         reader = csv.DictReader(fp, delimiter="\t")
         for row in reader:
             site_id = _normalize_device_code(row["device_code"])
+            if not _is_skk_site(site_id):
+                warnings.warn(f"Ignoring non-SKK site in master load: {site_id}")
+                continue
             capacity_kw = int(float(row["capacity_kw"]))
             capacity_by_site[site_id] = capacity_by_site.get(site_id, 0) + capacity_kw
 

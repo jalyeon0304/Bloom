@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -27,10 +27,11 @@
     .editable-cell input { width:90px; padding:4px 6px; border:1px solid #d1d5db; border-radius:6px; }
     .cell-hl { background:#eff6ff; transition: background .8s; }
     .cell-err { outline: 2px solid var(--err); }
-    .grid2 { display:grid; grid-template-columns:1fr; gap:12px; }
+    .tables-stack { display:grid; grid-template-columns:1fr; gap:12px; }
+    .table-wrap { overflow-x:auto; }
     .logs { max-height:140px; overflow:auto; background:#f9fafb; padding:8px; border-radius:8px; font-size:12px; }
     a.site-link { color:#1d4ed8; text-decoration:none; font-weight:600; }
-    @media (max-width:900px){ .grid,.grid2{ grid-template-columns:1fr; } }
+    @media (max-width:900px){ .grid,.tables-stack{ grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -39,7 +40,7 @@
     <div><strong>Summary (/dashboard)</strong><div class="muted">Live API production view</div></div>
     <div class="controls">
       <label class="muted">Role
-        <select id="roleSel"><option value="viewer">viewer</option><option value="supporter">supporter</option><option value="operator">operator</option></select>
+        <select id="roleSel"><option value="viewer">viewer</option><option value="operator">operator</option></select>
       </label>
       <label class="muted">Name <input id="nameInput" placeholder="optional"/></label>
       <label class="muted">Date <input id="dateInput" type="date"/></label>
@@ -55,14 +56,15 @@
     </div>
     <div class="card"><strong>Summary Table</strong><table><tbody id="tbody"></tbody></table><p class="muted" id="note"></p></div>
   </div>
-  <div class="grid2">
-    <div class="card"><strong>Semi-central</strong><table><thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>minKw</th><th>maxKw</th><th>cancel</th><th></th></tr></thead><tbody id="semiBody"></tbody></table></div>
-    <div class="card"><strong>Non-central</strong><div class="muted" style="margin-bottom:8px;">baseline0900 = measured output nearest to 09:00 (kW)</div><table><thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>baseline0900</th><th>minKw</th><th>cancel</th><th></th></tr></thead><tbody id="nonBody"></tbody></table></div>
+  <div class="tables-stack">
+    <div class="card"><strong>Semi-central</strong><div class="table-wrap"><table><thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>minKw</th><th>maxKw</th><th>cancel</th><th></th></tr></thead><tbody id="semiBody"></tbody></table></div></div>
+    <div class="card"><strong>Non-central</strong><div class="muted" style="margin-bottom:8px;">Baseline(10:00) = measured output nearest to 10:00 (kW)</div><div class="table-wrap"><table><thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>baseline(10:00)</th><th>minKw</th><th>cancel</th><th></th></tr></thead><tbody id="nonBody"></tbody></table></div></div>
   </div>
   <div class="card"><strong>System Logs</strong><div id="logList" class="logs"></div></div>
 </div>
 <script>
 let CURRENT=null; const hover={idx:-1,points:[]};
+const SKK_RE=/^SKK\d{3}$/;
 const num=v=>Number(v||0).toLocaleString('en-US');
 const role=()=>localStorage.getItem('uikit.role')||'viewer'; const isOp=()=>role()==='operator';
 const headers=()=>{const h={'X-User-Role':role()}; const n=(localStorage.getItem('uikit.name')||'').trim(); if(n) h['X-User-Name']=n; return h;};
@@ -78,26 +80,26 @@ function deriveTables(d){
   }
   const semi=[],non=[];
   for(const s of (d.sites||[])){
-    const base={siteId:s.siteId, rmccStart:s.rmccStart||'09:00', start:s.start||'09:20', finish:s.finish||'10:20', minKw:s.minKw??5000, isCanceled:!!s.isCanceled};
+    const base={siteId:s.siteId, rmccStart:s.rmccStart||'10:00', start:s.start||'10:20', finish:s.finish||'10:20', minKw:s.minKw??5000, isCanceled:!!s.isCanceled};
     if(s.group==='semi') semi.push({...base,maxKw:s.maxKw??10000});
-    else non.push({...base,baselineKw0900:s.baselineKw0900??'—'});
+    else non.push({...base,baselineKw1000:s.baselineKw1000??'—'});
   }
   semi.sort((a,b)=>String(a.siteId).localeCompare(String(b.siteId)));
   non.sort((a,b)=>String(a.siteId).localeCompare(String(b.siteId)));
   d.semiTable=semi;
   d.nonTable=non;
 }
-function renderChart(d){ const c=document.getElementById('chart').getContext('2d'); const w=720,h=240,p={l:52,r:12,t:10,b:30},pw=w-p.l-p.r,ph=h-p.t-p.b; c.clearRect(0,0,w,h); const xs=540,xe=1020, ym=yMax(d), toX=m=>p.l+((m-xs)/(xe-xs))*pw, toY=v=>p.t+(1-(v/ym))*ph;
+function renderChart(d){ const c=document.getElementById('chart').getContext('2d'); const w=720,h=240,p={l:52,r:12,t:10,b:30},pw=w-p.l-p.r,ph=h-p.t-p.b; c.clearRect(0,0,w,h); const xs=600,xe=1020, ym=yMax(d), toX=m=>p.l+((m-xs)/(xe-xs))*pw, toY=v=>p.t+(1-(v/ym))*ph;
 for(let m=xs;m<=xe;m+=10){const x=toX(m),maj=m%60===0;c.strokeStyle=maj?'#e5e7eb':'#f1f5f9';c.beginPath();c.moveTo(x,p.t);c.lineTo(x,h-p.b);c.stroke(); if(maj){c.fillStyle='#6b7280';c.font='11px sans-serif';c.fillText(tlabel(m),x-14,h-10)}}
 for(let y=0;y<=ym;y+=10000){const py=toY(y);c.strokeStyle='#e5e7eb';c.beginPath();c.moveTo(p.l,py);c.lineTo(w-p.r,py);c.stroke();c.fillStyle='#6b7280';c.font='11px sans-serif';c.fillText(String(y),4,py+3)}
-const sid=d.summary?.siteId||(d.sites?.[0]?.siteId); const cap=Number((d.sites||[]).find(s=>s.siteId===sid)?.capacityKw||0); const s=(d.timeseriesBySiteId?.[sid]||[]).map(p=>({...p,mins:hhmmMin(p.measured_at),kw:Number(p.kw||0)})).filter(p=>p.mins>=540&&p.mins<=1020);
+const sid=d.summary?.siteId||(d.sites?.[0]?.siteId); const cap=Number((d.sites||[]).find(s=>s.siteId===sid)?.capacityKw||0); const s=(d.timeseriesBySiteId?.[sid]||[]).map(p=>({...p,mins:hhmmMin(p.measured_at),kw:Number(p.kw||0)})).filter(p=>p.mins>=600&&p.mins<=1020);
 if(s.length<2){hover.points=[]; return;} c.strokeStyle='#2563eb'; c.lineWidth=2; c.beginPath(); const pts=[]; s.forEach((p,i)=>{const x=toX(p.mins),y=toY(p.kw);pts.push({x,y,mins:p.mins,kw:p.kw,siteId:sid,cap}); i?c.lineTo(x,y):c.moveTo(x,y)}); c.stroke(); c.fillStyle='#2563eb'; pts.forEach(p=>{c.beginPath();c.arc(p.x,p.y,2.5,0,Math.PI*2);c.fill()}); hover.points=pts; }
 function bindHover(){ const canvas=document.getElementById('chart'), tt=document.getElementById('tooltip'); canvas.onmousemove=(e)=>{const pts=hover.points;if(!pts.length)return; const r=canvas.getBoundingClientRect(); const mx=((e.clientX-r.left)/r.width)*canvas.width; let i=0,d=Math.abs(pts[0].x-mx); for(let j=1;j<pts.length;j++){const nd=Math.abs(pts[j].x-mx); if(nd<d){d=nd;i=j}} const p=pts[i]; const pct=p.cap>0?` (${((p.kw/p.cap)*100).toFixed(1)}%)`:''; tt.textContent=`${tlabel(p.mins)}\n${p.siteId} · ${num(p.kw)} kW${pct}`; tt.style.display='block'; tt.style.left=`${(p.x/canvas.width)*r.width}px`; tt.style.top=`${(p.y/canvas.height)*r.height}px`;}; canvas.onmouseleave=()=>tt.style.display='none';}
 function status(el,t,c){el.className=`status ${c||''}`;el.textContent=t}
-function valid(field,value,row){ if(['rmccStart','start','finish'].includes(field)){const m=/^(\d{2}):(\d{2})$/.exec(String(value)); if(!m) return 'HH:mm'; const mins=+m[1]*60+ +m[2]; if(mins<540||mins>1020) return '09:00~17:00'; const sv=field==='start'?value:row.start, fv=field==='finish'?value:row.finish; if(sv&&fv&&hhmmMin(`2026-01-01T${sv}:00+09:00`)>hhmmMin(`2026-01-01T${fv}:00+09:00`)) return 'start<=finish'; } if(['minKw','maxKw'].includes(field)&&value!==''&&Number.isNaN(Number(value))) return 'number'; return null; }
+function valid(field,value,row){ if(['rmccStart','start','finish'].includes(field)){const m=/^(\d{2}):(\d{2})$/.exec(String(value)); if(!m) return 'HH:mm'; const mins=+m[1]*60+ +m[2]; if(mins<600||mins>1020) return '10:00~17:00'; const sv=field==='start'?value:row.start, fv=field==='finish'?value:row.finish; if(sv&&fv&&hhmmMin(`2026-01-01T${sv}:00+09:00`)>hhmmMin(`2026-01-01T${fv}:00+09:00`)) return 'start<=finish'; } if(['minKw','maxKw'].includes(field)&&value!==''&&Number.isNaN(Number(value))) return 'number'; return null; }
 async function patch(siteId, field, value){ const date=document.getElementById('dateInput').value; return fetch('/api/schedule',{method:'PATCH',headers:{'Content-Type':'application/json',...headers()},body:JSON.stringify({date,siteId,field,value})}); }
 function renderTables(){ const roleOp=isOp(); document.getElementById('readonlyBadge').style.display=roleOp?'none':'inline'; const sem=document.getElementById('semiBody'), non=document.getElementById('nonBody'); sem.innerHTML=''; non.innerHTML='';
-const mk=(row,isSemi)=>{const tr=document.createElement('tr'); tr.innerHTML=`<td><a class='site-link' href='/sites/${encodeURIComponent(row.siteId)}?date=${encodeURIComponent(document.getElementById('dateInput').value||'')}'>${row.siteId}</a></td><td class='editable-cell'><input data-field='rmccStart' value='${row.rmccStart||''}' ${roleOp?'':'readonly'} /></td><td class='editable-cell'><input data-field='start' value='${row.start||''}' ${roleOp?'':'readonly'} /></td><td class='editable-cell'><input data-field='finish' value='${row.finish||''}' ${roleOp?'':'readonly'} /></td>${isSemi?`<td class='editable-cell'><input data-field='minKw' value='${row.minKw??''}' ${roleOp?'':'readonly'} /></td><td class='editable-cell'><input data-field='maxKw' value='${row.maxKw??''}' ${roleOp?'':'readonly'} /></td>`:`<td>${row.baselineKw0900??'—'}</td><td class='editable-cell'><input data-field='minKw' value='${row.minKw??''}' ${roleOp?'':'readonly'} /></td>`}<td><button data-field='isCanceled' ${roleOp?'':'disabled'}>${row.isCanceled?'Canceled':'Active'}</button></td><td class='status'></td>`;
+const mk=(row,isSemi)=>{const tr=document.createElement('tr'); tr.innerHTML=`<td><a class='site-link' href='/sites/${encodeURIComponent(row.siteId)}?date=${encodeURIComponent(document.getElementById('dateInput').value||'')}'>${row.siteId}</a></td><td class='editable-cell'><input data-field='rmccStart' value='${row.rmccStart||''}' ${roleOp?'':'readonly'} /></td><td class='editable-cell'><input data-field='start' value='${row.start||''}' ${roleOp?'':'readonly'} /></td><td class='editable-cell'><input data-field='finish' value='${row.finish||''}' ${roleOp?'':'readonly'} /></td>${isSemi?`<td class='editable-cell'><input data-field='minKw' value='${row.minKw??''}' ${roleOp?'':'readonly'} /></td><td class='editable-cell'><input data-field='maxKw' value='${row.maxKw??''}' ${roleOp?'':'readonly'} /></td>`:`<td>${row.baselineKw1000??'—'}</td><td class='editable-cell'><input data-field='minKw' value='${row.minKw??''}' ${roleOp?'':'readonly'} /></td>`}<td><button data-field='isCanceled' ${roleOp?'':'disabled'}>${row.isCanceled?'Canceled':'Active'}</button></td><td class='status'></td>`;
 const st=tr.querySelector('.status'); tr.querySelectorAll('input[data-field]').forEach(inp=>inp.onkeydown=async(e)=>{if(e.key!=='Enter'||!roleOp)return; const f=inp.dataset.field,nv=inp.value.trim(),ov=row[f]??''; const er=valid(f,nv,row); if(er){inp.classList.add('cell-err');status(st,'Failed','failed');return;} inp.classList.remove('cell-err'); if(String(ov)===String(nv)){status(st,'','');return;} status(st,'Saving…','saving'); const r=await patch(row.siteId,f,nv); if(!r.ok){status(st,'Failed','failed'); inp.classList.add('cell-err');return;} const b=await r.json(); row[f]=nv; inp.parentElement.classList.add('cell-hl'); setTimeout(()=>inp.parentElement.classList.remove('cell-hl'),800); status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); if(b.logLine){(CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(b.logLine); renderLogs();} if(['minKw','maxKw','isCanceled'].includes(f)) renderData(CURRENT);});
 const btn=tr.querySelector('button[data-field=isCanceled]'); btn.onclick=async()=>{if(!roleOp)return; status(st,'Saving…','saving'); const next=!row.isCanceled; const r=await patch(row.siteId,'isCanceled',next); if(!r.ok){status(st,'Failed','failed');return;} const b=await r.json(); row.isCanceled=next; btn.textContent=next?'Canceled':'Active'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); if(b.logLine){(CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(b.logLine); renderLogs();} for(const s of (CURRENT.sites||[])) if(s.siteId===row.siteId) s.isCanceled=next; renderData(CURRENT);};
 return tr;};

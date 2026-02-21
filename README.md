@@ -56,6 +56,12 @@ UI 텍스트는 운영 기준으로 **영문(English)**을 기본 사용합니�
 
 `/ui-kit`은 `src/bloom/ui_fixtures/*.json` fixture만 사용하므로 DB/실데이터 없이 항상 렌더링됩니다. `/dashboard`는 운영용 Summary(Live API 기본) 화면입니다.
 
+
+## SKK-only scope (v1)
+- App-facing datasets include only strict `SKK###` site IDs (`^SKK\d{3}$`).
+- Non-SKK rows in master source are ignored with warning during load.
+- UI lists, summary payload, fixtures, export, and history follow SKK-only scope.
+
 ## 서버 데이터 업데이트 주기 권장안
 - 기본(상시 모니터링): **60초**
 - 급전지시 진행 시간대(집중 모니터링): **10~30초**
@@ -98,12 +104,12 @@ UI 텍스트는 운영 기준으로 **영문(English)**을 기본 사용합니�
   - 서버 실행 후 `http://127.0.0.1:8000/ui-kit` 접속
   - `?scenario=loading|empty|normal|activeHighCapacity` 확인
 - **PR2 (차트/필터)**
-  - X축 09:00~17:00 고정, 1h 라벨/10min 그리드 확인
+  - X축 10:00~17:00 고정, 1h 라벨/10min 그리드 확인
   - Y축 max가 active capacity 만단위 올림인지 확인
   - 툴팁 2줄(`HH:mm`, `siteId · kW (tmo%)`) 확인
   - 그룹/사이트 체크박스 tri-state 동작 확인
 - **PR3 (테이블 인라인 편집 + role 제한)**
-  - role=viewer/supporter에서 편집 read-only 확인
+  - role=viewer에서 편집 read-only 확인
   - role=operator에서 Enter 입력 시 `Saving…` -> `Saved ✓`(약 1~1.5초) + 셀 하이라이트 확인
   - 시스템 로그 포맷 `[HH:mm:ss] {siteId} {field} : {old} → {new}` 확인
 - **PR4 (API)**
@@ -131,5 +137,5 @@ PowerShell에서 빠르게 확인:
 - `/api/history/summary?siteId=SKK046&from=2026-01-01`
 
 ## Role 설정
-- 상단 Role selector로 `viewer|supporter|operator`를 선택하면 localStorage에 저장됩니다.
-- `viewer/supporter`는 read-only, `operator`만 Enter autosave 및 export 가능.
+- 상단 Role selector로 `viewer|operator`를 선택하면 localStorage에 저장됩니다.
+- `viewer`는 read-only, `operator`만 Enter autosave 및 export 가능.

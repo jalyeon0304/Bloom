@@ -2,6 +2,7 @@ from collections import deque
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 import json
+import re
 from pathlib import Path
 from secrets import token_urlsafe
 from uuid import uuid4
@@ -96,6 +97,20 @@ def _load_uikit_state() -> dict[str, dict]:
 
 
 _UIKIT_DATA: dict[str, dict] = _load_uikit_state()
+
+
+def _filter_skk_payload(data: dict) -> dict:
+    pattern = re.compile(r"^SKK\d{3}$")
+    payload = deepcopy(data)
+    payload["sites"] = [s for s in payload.get("sites", []) if pattern.match(str(s.get("siteId") or ""))]
+    tmap = payload.get("timeseriesBySiteId") or {}
+    payload["timeseriesBySiteId"] = {k: v for k, v in tmap.items() if pattern.match(str(k))}
+    payload["series"] = [p for p in payload.get("series", [])]
+    if payload.get("semiTable"):
+        payload["semiTable"] = [r for r in payload.get("semiTable", []) if pattern.match(str(r.get("siteId") or ""))]
+    if payload.get("nonTable"):
+        payload["nonTable"] = [r for r in payload.get("nonTable", []) if pattern.match(str(r.get("siteId") or ""))]
+    return payload
 
 
 def _make_uikit_logline(site_id: str, field: str, old: str, new: str, user: str | None) -> str:
@@ -207,7 +222,7 @@ def ui_kit(scenario: str = Query(default="normal")) -> str:
 @app.get("/api/ui-kit/summary")
 def api_ui_kit_summary(scenario: str = Query(default="normal")) -> dict:
     key = scenario if scenario in _UIKIT_DATA else "normal"
-    return deepcopy(_UIKIT_DATA[key])
+    return _filter_skk_payload(_UIKIT_DATA[key])
 
 
 @app.patch("/api/ui-kit/schedule")
@@ -220,7 +235,8 @@ def api_ui_kit_schedule_patch(
     _role_guard(x_user_role, {"operator"})
 
     scenario_key = scenario if scenario in _UIKIT_DATA else "normal"
-    data = _UIKIT_DATA[scenario_key]
+    data = _filter_skk_payload(_UIKIT_DATA[scenario_key])
+    _UIKIT_DATA[scenario_key] = data
     site_id = payload.siteId
     field = payload.field
 
@@ -309,7 +325,7 @@ def api_meta() -> dict:
     return {
         "timezone": "Asia/Seoul",
         "serverDateKst": now.strftime("%Y-%m-%d"),
-        "baselineTime": "09:00",
+        "baselineTime": "10:00",
         "endTime": "17:00",
     }
 
@@ -400,7 +416,8 @@ def _make_snapshot_record(
         "finish": site.get("finish"),
         "minKw": site.get("minKw"),
         "maxKw": site.get("maxKw"),
-        "baselineKw0900": site.get("baselineKw0900"),
+        "baselineKw1000": site.get("baselineKw1000") if site.get("baselineKw1000") is not None else site.get("baselineKw0900"),
+        "baselineKw0900": site.get("baselineKw1000") if site.get("baselineKw1000") is not None else site.get("baselineKw0900"),
         "isActive": site.get("isActive"),
         "isCanceled": site.get("isCanceled"),
     }
@@ -408,6 +425,12 @@ def _make_snapshot_record(
 
 def _server_date(date: str | None) -> str:
     return date or _now_kst().strftime("%Y-%m-%d")
+
+
+def _excel_kst_datetime(date_text: str, hhmm: str | None) -> str | None:
+    if not hhmm or not _valid_hhmm(hhmm):
+        return None
+    return f"{date_text} {hhmm}"
 
 
 def _valid_hhmm(value: str) -> bool:
@@ -418,13 +441,14 @@ def _valid_hhmm(value: str) -> bool:
     if not (hh.isdigit() and mm.isdigit()):
         return False
     mins = int(hh) * 60 + int(mm)
-    return 540 <= mins <= 1020
+    return 600 <= mins <= 1020
 
 
 def _baseline_from_points(points: list[dict]) -> int | None:
     if not points:
         return None
-    target = 9 * 60
+    target = 10 * 60
+    tolerance = 10
     scored = []
     for p in points:
         text = str(p.get("measured_at") or "")
@@ -432,7 +456,9 @@ def _baseline_from_points(points: list[dict]) -> int | None:
         if not _valid_hhmm(hhmm):
             continue
         mins = int(hhmm[:2]) * 60 + int(hhmm[3:])
-        scored.append((abs(mins - target), p))
+        diff = abs(mins - target)
+        if diff <= tolerance:
+            scored.append((diff, p))
     if not scored:
         return None
     scored.sort(key=lambda x: x[0])
@@ -443,14 +469,16 @@ def _hourly_points(site_id: str, capacity_kw: int, date: str) -> list[dict]:
     base = max(0, int(capacity_kw * 0.62))
     seed = sum(ord(c) for c in site_id) % 700
     points: list[dict] = []
-    for hour in range(9, 18):
-        kw = min(capacity_kw, base + seed + (hour - 9) * 70)
+    for hour in range(10, 18):
+        kw = min(capacity_kw, base + seed + (hour - 10) * 70)
         points.append({"measured_at": f"{date}T{hour:02d}:00:00+09:00", "kw": int(kw)})
     return points
 
 
 def _summary_master_rows(limit_non: int = 8) -> list[dict]:
     masters = list_master_sites()
+    pattern = re.compile(r"^SKK\d{3}$")
+    masters = [m for m in masters if pattern.match(str(m.get("site_id") or ""))]
     by_site = {str(m.get("site_id") or ""): m for m in masters}
     canonical_semi_ids = ("SKK046", "SKK056", "SKK144", "SKK167")
 
@@ -463,7 +491,7 @@ def _summary_master_rows(limit_non: int = 8) -> list[dict]:
         semi_rows.append(
             {
                 "site_id": site_id,
-                "site_name": f"준중앙-{site_id}",
+                "site_name": f"Semi-{site_id}",
                 "group_type": "준중앙",
                 "nameplate_kw": 0,
                 "is_active": False,
@@ -471,7 +499,7 @@ def _summary_master_rows(limit_non: int = 8) -> list[dict]:
         )
 
     non_rows = [m for m in masters if m.get("site_id") not in set(canonical_semi_ids)]
-    non_rows.sort(key=lambda x: ((not str(x.get("site_id", "")).startswith("SKK")), x.get("site_id", "")))
+    non_rows.sort(key=lambda x: str(x.get("site_id", "")))
     return semi_rows + non_rows[:limit_non]
 
 
@@ -497,12 +525,12 @@ def _build_summary_payload(date: str | None = None) -> dict:
             "capacityKw": cap,
             "isActive": bool(ov.get("isActive", i % 2 == 0)),
             "isCanceled": bool(ov.get("isCanceled", False)),
-            "rmccStart": str(ov.get("rmccStart", "09:00")),
-            "start": str(ov.get("start", "09:20")),
+            "rmccStart": str(ov.get("rmccStart", "10:00")),
+            "start": str(ov.get("start", "10:20")),
             "finish": str(ov.get("finish", "10:20")),
             "minKw": int(ov.get("minKw", max(1000, int(cap * 0.25)))),
             "maxKw": int(ov.get("maxKw", max(2000, int(cap * 0.65)))) if group == "semi" else None,
-            "baselineKw0900": _baseline_from_points(points) if group == "non" else None,
+            "baselineKw1000": _baseline_from_points(points) if group == "non" else None,
         }
         sites.append(site)
 
@@ -524,9 +552,9 @@ def _build_summary_payload(date: str | None = None) -> dict:
 
     aggregate = []
     if per_site:
-        for hour in range(9, 18):
+        for hour in range(10, 18):
             stamp = f"{used_date}T{hour:02d}:00:00+09:00"
-            kw_sum = sum((pts[hour - 9]["kw"] for pts in per_site.values() if len(pts) >= (hour - 8)))
+            kw_sum = sum((pts[hour - 10]["kw"] for pts in per_site.values() if len(pts) >= (hour - 9)))
             aggregate.append({"measured_at": stamp, "kw": kw_sum})
 
     logs = store["systemLogs"].get(used_date, [])
@@ -534,7 +562,7 @@ def _build_summary_payload(date: str | None = None) -> dict:
         "scenario": "live",
         "date": used_date,
         "timezone": "Asia/Seoul",
-        "baselineTime": "09:00",
+        "baselineTime": "10:00",
         "endTime": "17:00",
         "summary": summary,
         "sites": sites,
@@ -693,14 +721,14 @@ def api_export_xlsx(
     for s in payload.get("sites", []):
         if s.get("group") != "semi":
             continue
-        semi.append([s.get("siteId"), s.get("siteName"), s.get("rmccStart"), s.get("start"), s.get("finish"), s.get("minKw"), s.get("maxKw"), s.get("isCanceled"), s.get("isActive")])
+        semi.append([s.get("siteId"), s.get("siteName"), _excel_kst_datetime(summary.get("date", ""), s.get("rmccStart")), _excel_kst_datetime(summary.get("date", ""), s.get("start")), _excel_kst_datetime(summary.get("date", ""), s.get("finish")), s.get("minKw"), s.get("maxKw"), s.get("isCanceled"), s.get("isActive")])
 
     non = wb.create_sheet("NonCentral")
-    non.append(["siteId", "siteName", "rmccStart", "start", "finish", "baselineKw0900", "minKw", "isCanceled", "isActive"])
+    non.append(["siteId", "siteName", "rmccStart", "start", "finish", "baselineKw1000", "minKw", "isCanceled", "isActive"])
     for s in payload.get("sites", []):
         if s.get("group") != "non":
             continue
-        non.append([s.get("siteId"), s.get("siteName"), s.get("rmccStart"), s.get("start"), s.get("finish"), s.get("baselineKw0900"), s.get("minKw"), s.get("isCanceled"), s.get("isActive")])
+        non.append([s.get("siteId"), s.get("siteName"), _excel_kst_datetime(summary.get("date", ""), s.get("rmccStart")), _excel_kst_datetime(summary.get("date", ""), s.get("start")), _excel_kst_datetime(summary.get("date", ""), s.get("finish")), s.get("baselineKw1000") if s.get("baselineKw1000") is not None else s.get("baselineKw0900"), s.get("minKw"), s.get("isCanceled"), s.get("isActive")])
 
     logs = wb.create_sheet("SystemLogs")
     logs.append(["logLine"])

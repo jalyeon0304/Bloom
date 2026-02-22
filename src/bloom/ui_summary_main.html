@@ -106,6 +106,7 @@ const SKK_RE=/^SKK\d{3}$/;
 const SEMI_PINNED=['SKK046','SKK056','SKK144','SKK167'];
 let chartSelected = JSON.parse(localStorage.getItem('summary.chartSelected') || '[]');
 let pickerSelected = JSON.parse(localStorage.getItem('summary.pickerSelected') || '[]');
+let UI_LOGS=[];
 
 const num=v=>Number(v||0).toLocaleString('en-US');
 const role=()=>localStorage.getItem('uikit.role')||'viewer';
@@ -140,6 +141,41 @@ function deriveTables(d){
 function status(el,t,c){el.className=`status ${c||''}`;el.textContent=t}
 function valid(field,value,row){ if(['rmccStart','start','finish'].includes(field)){const m=/^(\d{2}):(\d{2})$/.exec(String(value)); if(!m) return 'HH:mm'; const mins=+m[1]*60+ +m[2]; if(mins<600||mins>1020) return '10:00~17:00'; const sv=field==='start'?value:row.start, fv=field==='finish'?value:row.finish; if(sv&&fv&&hhmmMin(`2026-01-01T${sv}:00+09:00`)>hhmmMin(`2026-01-01T${fv}:00+09:00`)) return 'start<=finish'; } if(['minKw','maxKw'].includes(field)&&value!==''&&Number.isNaN(Number(value))) return 'number'; return null; }
 async function patch(siteId, field, value){ const date=document.getElementById('dateInput').value; return fetch('/api/schedule',{method:'PATCH',headers:{'Content-Type':'application/json',...headers()},body:JSON.stringify({date,siteId,field,value})}); }
+
+function kstNowParts(){
+  const now=new Date();
+  const dateFmt=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'});
+  const timeFmt=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hour12:false});
+  return {date:dateFmt.format(now), time:timeFmt.format(now)};
+}
+
+function normalizeFieldValue(field,value){
+  if(value==null) return '';
+  if(['rmccStart','start','finish'].includes(field)){
+    const m=String(value).trim().match(/^(\d{1,2}):(\d{1,2})$/);
+    return m?`${String(Number(m[1])).padStart(2,'0')}:${String(Number(m[2])).padStart(2,'0')}`:String(value).trim();
+  }
+  return String(value).trim();
+}
+
+function orderLabelOf(row){ return (row?.customerOrder || row?.orderLabel || 'KPX Rampdown'); }
+
+function appendEventLog(siteId, orderLabel, event){
+  const parts=kstNowParts();
+  const selectedDate=(document.getElementById('dateInput')?.value||'').trim();
+  const baseDate=selectedDate||parts.date;
+  UI_LOGS.push(`[${baseDate} ${parts.time}] ${siteId} ${orderLabel} ${event}`);
+  renderLogs();
+}
+
+function logEvent(type,payload){
+  const siteId=payload.siteId;
+  const orderLabel=payload.orderLabel||'KPX Rampdown';
+  if(type==='activate') appendEventLog(siteId,orderLabel,payload.active?'Activate':'Deactivate');
+  else if(type==='cancel') appendEventLog(siteId,orderLabel,payload.canceled?'Canceled':'Cancel cleared');
+  else if(type==='changed') appendEventLog(siteId,orderLabel,`changed (${payload.changes.join('; ')})`);
+  else if(type==='error') appendEventLog(siteId,orderLabel,`error (${payload.message})`);
+}
 
 function renderPicker(){
   if(!CURRENT) return;
@@ -218,24 +254,31 @@ function renderTables(){
     tr.innerHTML=`<td><a class='site-link' href='/sites/${encodeURIComponent(row.siteId)}?date=${encodeURIComponent(document.getElementById('dateInput').value||'')}'>${row.siteId}</a></td><td class='editable-cell'><input data-field='rmccStart' value='${row.rmccStart||''}' ${disabled} /></td><td class='editable-cell'><input data-field='start' value='${row.start||''}' ${disabled} /></td><td class='editable-cell'><input data-field='finish' value='${row.finish||''}' ${disabled} /></td>${isSemi?`<td class='editable-cell'><input data-field='minKw' value='${row.minKw??''}' ${disabled} /></td><td class='editable-cell'><input data-field='maxKw' value='${row.maxKw??''}' ${disabled} /></td>`:`<td>${row.baselineKw1000??'—'}</td><td class='editable-cell'><input data-field='minKw' value='${row.minKw??''}' ${disabled} /></td>`}<td><button data-field='isActive' ${roleOp?'':'disabled'}>${row.isActive?'Active':'Inactive'}</button></td><td><button data-field='isCanceled' ${roleOp?'':'disabled'}>${row.isCanceled?'Canceled':'Normal'}</button></td><td class='status'></td>`;
     const st=tr.querySelector('.status');
 
-    tr.querySelectorAll('input[data-field]').forEach(inp=>inp.onkeydown=async(e)=>{
-      if(e.key!=='Enter'||!roleOp||!row.isActive) return;
+    const saveInput=async(inp)=>{
+      if(!roleOp||!row.isActive) return;
       const f=inp.dataset.field,nv=inp.value.trim(),ov=row[f]??'';
       const er=valid(f,nv,row); if(er){inp.classList.add('cell-err');status(st,'Failed','failed');return;}
-      inp.classList.remove('cell-err'); if(String(ov)===String(nv)){status(st,'','');return;}
+      inp.classList.remove('cell-err');
+      const oldNorm=normalizeFieldValue(f,ov), newNorm=normalizeFieldValue(f,nv);
+      if(oldNorm===newNorm){status(st,'','');return;}
       status(st,'Saving…','saving'); const r=await patch(row.siteId,f,nv);
-      if(!r.ok){status(st,'Failed','failed'); inp.classList.add('cell-err');return;}
-      const b=await r.json(); row[f]=nv;
+      if(!r.ok){status(st,'Failed','failed'); inp.classList.add('cell-err'); logEvent('error',{siteId:row.siteId,orderLabel:orderLabelOf(row),message:`save failed (${f})`});return;}
+      await r.json(); row[f]=nv;
       inp.parentElement.classList.add('cell-hl'); setTimeout(()=>inp.parentElement.classList.remove('cell-hl'),800);
       status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300);
-      if(b.logLine){(CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(b.logLine); renderLogs();}
+      logEvent('changed',{siteId:row.siteId,orderLabel:orderLabelOf(row),changes:[`${f}: ${oldNorm||'∅'} → ${newNorm||'∅'}`]});
       if(['minKw','maxKw','isCanceled','isActive'].includes(f)) renderData(CURRENT);
+    };
+
+    tr.querySelectorAll('input[data-field]').forEach(inp=>{
+      inp.onkeydown=async(e)=>{ if(e.key==='Enter') await saveInput(inp); };
+      inp.onblur=async()=>{ await saveInput(inp); };
     });
 
     const activeBtn=tr.querySelector('button[data-field=isActive]');
-    activeBtn.onclick=async()=>{ if(!roleOp) return; status(st,'Saving…','saving'); const next=!row.isActive; const r=await patch(row.siteId,'isActive',next); if(!r.ok){status(st,'Failed','failed');return;} const b=await r.json(); row.isActive=next; activeBtn.textContent=next?'Active':'Inactive'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); if(b.logLine){(CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(b.logLine); renderLogs();} for(const s of (CURRENT.sites||[])) if(s.siteId===row.siteId) s.isActive=next; renderData(CURRENT); };
+    activeBtn.onclick=async()=>{ if(!roleOp) return; status(st,'Saving…','saving'); const next=!row.isActive; const r=await patch(row.siteId,'isActive',next); if(!r.ok){status(st,'Failed','failed'); logEvent('error',{siteId:row.siteId,orderLabel:orderLabelOf(row),message:'activate toggle failed'});return;} await r.json(); row.isActive=next; activeBtn.textContent=next?'Active':'Inactive'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); logEvent('activate',{siteId:row.siteId,orderLabel:orderLabelOf(row),active:next}); for(const s of (CURRENT.sites||[])) if(s.siteId===row.siteId) s.isActive=next; renderData(CURRENT); };
     const cancelBtn=tr.querySelector('button[data-field=isCanceled]');
-    cancelBtn.onclick=async()=>{ if(!roleOp) return; status(st,'Saving…','saving'); const next=!row.isCanceled; const r=await patch(row.siteId,'isCanceled',next); if(!r.ok){status(st,'Failed','failed');return;} const b=await r.json(); row.isCanceled=next; cancelBtn.textContent=next?'Canceled':'Normal'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); if(b.logLine){(CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(b.logLine); renderLogs();} for(const s of (CURRENT.sites||[])) if(s.siteId===row.siteId) s.isCanceled=next; renderData(CURRENT); };
+    cancelBtn.onclick=async()=>{ if(!roleOp) return; status(st,'Saving…','saving'); const next=!row.isCanceled; const r=await patch(row.siteId,'isCanceled',next); if(!r.ok){status(st,'Failed','failed'); logEvent('error',{siteId:row.siteId,orderLabel:orderLabelOf(row),message:'cancel toggle failed'});return;} await r.json(); row.isCanceled=next; cancelBtn.textContent=next?'Canceled':'Normal'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); logEvent('cancel',{siteId:row.siteId,orderLabel:orderLabelOf(row),canceled:next}); for(const s of (CURRENT.sites||[])) if(s.siteId===row.siteId) s.isCanceled=next; renderData(CURRENT); };
     return tr;
   };
 
@@ -274,7 +317,7 @@ function renderChart(d){
 
 function bindHover(){ const canvas=document.getElementById('chart'), tt=document.getElementById('tooltip'); canvas.onmousemove=(e)=>{const pts=hover.points;if(!pts.length)return; const r=canvas.getBoundingClientRect(); const mx=((e.clientX-r.left)/r.width)*canvas.width; let i=0,d=Math.abs(pts[0].x-mx); for(let j=1;j<pts.length;j++){const nd=Math.abs(pts[j].x-mx); if(nd<d){d=nd;i=j}} const p=pts[i]; const pct=p.cap>0?` (${((p.kw/p.cap)*100).toFixed(1)}%)`:''; tt.textContent=`${tlabel(p.mins)}\n${p.siteId} · ${num(p.kw)} kW${pct}`; tt.style.display='block'; tt.style.left=`${(p.x/canvas.width)*r.width}px`; tt.style.top=`${(p.y/canvas.height)*r.height}px`;}; canvas.onmouseleave=()=>tt.style.display='none';}
 
-function renderLogs(){const box=document.getElementById('logList'); const logs=(CURRENT?.systemLogs||[]).slice().reverse(); box.innerHTML=logs.length?logs.map(l=>`<div>${l}</div>`).join(''):'<div class="muted">No logs</div>'}
+function renderLogs(){const box=document.getElementById('logList'); const logs=UI_LOGS.slice().reverse(); box.innerHTML=logs.length?logs.map(l=>`<div>${l}</div>`).join(''):'<div class="muted">No logs</div>'}
 
 function renderData(data){
   deriveTables(data); CURRENT=data;

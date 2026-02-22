@@ -304,7 +304,12 @@ def dashboard() -> str:
     html = html_path.read_text(encoding="utf-8").replace("__BUILD_SHA__", str(build["sha"]))
     return HTMLResponse(
         content=html,
-        headers={"X-Bloom-UI": UI_MARKER_SUMMARY, "X-Bloom-Build": str(build["sha"])},
+        headers={
+            "X-Bloom-UI": UI_MARKER_SUMMARY,
+            "X-Bloom-Build": str(build["sha"]),
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
     )
 
 
@@ -371,7 +376,12 @@ def _render_site_detail(site_id: str) -> HTMLResponse:
     html = html_path.read_text(encoding="utf-8")
     return HTMLResponse(
         content=html.replace("__SITE_ID__", site_id),
-        headers={"X-Bloom-UI": UI_MARKER_SITE_DETAIL, "X-Bloom-Site": site_id},
+        headers={
+            "X-Bloom-UI": UI_MARKER_SITE_DETAIL,
+            "X-Bloom-Site": site_id,
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
     )
 
 

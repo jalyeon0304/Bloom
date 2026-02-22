@@ -330,6 +330,17 @@ async function load(){
   renderData(await r.json());
 }
 
+
+async function refreshBuildInfo(){
+  try{
+    const r=await fetch('/api/version',{headers:headers(),cache:'no-store'});
+    if(!r.ok) return;
+    const v=await r.json();
+    const sha=String(v.gitSha||'').trim();
+    if(sha) document.getElementById('buildSha').textContent=sha;
+  }catch(_e){}
+}
+
 function init(){
   document.getElementById('roleSel').value=localStorage.getItem('uikit.role')||'viewer';
   document.getElementById('nameInput').value=localStorage.getItem('uikit.name')||'';
@@ -342,6 +353,7 @@ function init(){
   document.getElementById('exportBtn').onclick=async()=>{if(!isOp()) return; const d=document.getElementById('dateInput').value; const r=await fetch(`/api/export.xlsx?date=${encodeURIComponent(d)}`,{headers:headers()}); if(!r.ok){alert('Export failed: '+await r.text()); return;} const b=await r.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`summary_${d}.xlsx`; a.click(); URL.revokeObjectURL(a.href);};
   bindPickerEvents();
   bindHover();
+  refreshBuildInfo();
   load();
 }
 init();

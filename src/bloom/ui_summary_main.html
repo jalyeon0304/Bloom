@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bloom Summary</title>
+  <style>
+    :root { --bg:#f3f4f6; --card:#fff; --text:#111827; --muted:#6b7280; --line:#e5e7eb; --primary:#2563eb; --ok:#059669; --err:#dc2626; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+    .wrap { max-width:1280px; margin:0 auto; padding:16px; display:grid; gap:12px; }
+    .card { background:var(--card); border-radius:12px; padding:14px; box-shadow:0 4px 14px rgba(0,0,0,.06); min-width:0; }
+    .top,.row { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+    .controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .btn { border:1px solid var(--line); border-radius:16px; padding:6px 10px; cursor:pointer; background:#fff; }
+    .btn:disabled { opacity:.5; cursor:not-allowed; }
+    .muted { color:var(--muted); font-size:12px; }
+    .readonly { color:var(--err); font-size:12px; font-weight:700; }
+    .grid { display:grid; grid-template-columns:1.2fr 1fr; gap:12px; }
+    #chart { width:100%; height:260px; }
+    .chart-wrap { position:relative; }
+    .tooltip { position:absolute; display:none; pointer-events:none; background:#111827; color:#fff; border-radius:8px; font-size:11px; line-height:1.3; padding:6px 8px; white-space:pre-line; transform:translate(8px,-110%); }
+
+    table { width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed; }
+    th, td { border-bottom:1px solid var(--line); padding:8px; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .status { min-width:74px; text-align:right; font-size:12px; }
+    .saving { color:#2563eb; }
+    .saved { color:var(--ok); font-weight:700; }
+    .failed { color:var(--err); font-weight:700; }
+    .editable-cell input { width:88px; padding:4px 6px; border:1px solid #d1d5db; border-radius:6px; }
+    .cell-hl { background:#eff6ff; transition: background .8s; }
+    .cell-err { outline: 2px solid var(--err); }
+
+    .tablesGrid { display:grid; grid-template-columns:600px minmax(0,1fr); gap:16px; align-items:start; }
+    .tableCard { min-width:0; }
+    .table-wrap { overflow-x:auto; max-width:100%; }
+    .edit-table col.site { width:84px; }
+    .edit-table col.time { width:92px; }
+    .edit-table col.num { width:94px; }
+    .edit-table col.state { width:84px; }
+    .edit-table col.status { width:84px; }
+
+    .site-picker { display:grid; gap:10px; }
+    .picker-top { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .picker-list { border:1px solid var(--line); border-radius:8px; max-height:220px; overflow:auto; padding:6px; background:#fff; }
+    .picker-item { display:flex; justify-content:space-between; align-items:center; padding:4px 6px; border-bottom:1px solid #f3f4f6; }
+    .picker-item:last-child { border-bottom:0; }
+    .picker-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:12px; background:#eef2ff; font-size:11px; }
+
+    .logs { max-height:140px; overflow:auto; background:#f9fafb; padding:8px; border-radius:8px; font-size:12px; }
+    a.site-link { color:#1d4ed8; text-decoration:none; font-weight:600; }
+    @media (max-width:1100px){ .grid,.tablesGrid{ grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card top">
+    <div><strong>Summary (/dashboard)</strong><div class="muted">Live API production view · Build: <code id="buildSha">__BUILD_SHA__</code></div></div>
+    <div class="controls">
+      <label class="muted">Role
+        <select id="roleSel"><option value="viewer">viewer</option><option value="operator">operator</option></select>
+      </label>
+      <label class="muted">Name <input id="nameInput" placeholder="optional"/></label>
+      <label class="muted">Date <input id="dateInput" type="date"/></label>
+      <button class="btn" id="reloadBtn">Reload</button>
+      <button class="btn" id="exportBtn">Export .xlsx</button>
+      <span id="readonlyBadge" class="readonly">Viewer mode</span>
+    </div>
+  </div>
+
+  <div class="card site-picker">
+    <div class="row"><strong>Site Picker (SKK only)</strong><span class="muted">Search + multi-select + add to chart / activate in table</span></div>
+    <div class="picker-top">
+      <input id="pickerSearch" placeholder="Search siteId/siteName" />
+      <label><input id="checkSemiAll" type="checkbox" /> Semi all</label>
+      <label><input id="checkNonAll" type="checkbox" /> Non all</label>
+      <span class="badge" id="pickerCount">0 selected</span>
+    </div>
+    <div id="pickerList" class="picker-list"></div>
+    <div class="picker-actions">
+      <button class="btn" id="pickerChartBtn">Add to chart</button>
+      <button class="btn" id="pickerActivateBtn">Add/activate in table</button>
+      <button class="btn" id="pickerClearBtn">Clear selection</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="row"><strong id="title">Summary Chart</strong><span id="subtitle" class="muted"></span></div>
+      <div class="chart-wrap"><canvas id="chart" width="900" height="260"></canvas><div id="tooltip" class="tooltip"></div></div>
+    </div>
+    <div class="card"><strong>Summary Table</strong><table><tbody id="tbody"></tbody></table><p class="muted" id="note"></p></div>
+  </div>
+
+  <div class="tablesGrid">
+    <div class="card tableCard"><strong>Semi-central</strong><div class="table-wrap"><table class="edit-table"><colgroup><col class="site"><col class="time"><col class="time"><col class="time"><col class="num"><col class="num"><col class="state"><col class="state"><col class="status"></colgroup><thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>minKw</th><th>maxKw</th><th>active</th><th>cancel</th><th></th></tr></thead><tbody id="semiBody"></tbody></table></div></div>
+    <div class="card tableCard"><strong>Non-central</strong><div class="muted" style="margin-bottom:8px;">Baseline(10:00) = measured output nearest to 10:00 (kW)</div><div class="table-wrap"><table class="edit-table"><colgroup><col class="site"><col class="time"><col class="time"><col class="time"><col class="num"><col class="num"><col class="state"><col class="state"><col class="status"></colgroup><thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>baseline(10:00)</th><th>minKw</th><th>active</th><th>cancel</th><th></th></tr></thead><tbody id="nonBody"></tbody></table></div></div>
+  </div>
+
+  <div class="card"><strong>System Logs</strong><div id="logList" class="logs"></div></div>
+</div>
+<script>
+let CURRENT=null;
+const hover={idx:-1,points:[]};
+const SKK_RE=/^SKK\d{3}$/;
+const SEMI_PINNED=['SKK046','SKK056','SKK144','SKK167'];
+let chartSelected = JSON.parse(localStorage.getItem('summary.chartSelected') || '[]');
+let pickerSelected = JSON.parse(localStorage.getItem('summary.pickerSelected') || '[]');
+
+const num=v=>Number(v||0).toLocaleString('en-US');
+const role=()=>localStorage.getItem('uikit.role')||'viewer';
+const isOp=()=>role()==='operator';
+const headers=()=>{const h={'X-User-Role':role()}; const n=(localStorage.getItem('uikit.name')||'').trim(); if(n) h['X-User-Name']=n; return h;};
+const hhmmMin=v=>{const m=String(v||'').match(/T(\d{2}):(\d{2})/)||String(v||'').match(/^(\d{2}):(\d{2})$/); return m?Number(m[1])*60+Number(m[2]):0};
+const tlabel=m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+
+function yMax(d){const caps=(d.sites||[]).filter(s=>s.isActive && !s.isCanceled).map(s=>Number(s.capacityKw||0)); return caps.length?Math.ceil(Math.max(...caps)/10000)*10000:10000}
+
+function normalizeGroup(g){
+  const v=String(g||'').toLowerCase();
+  if(['semi','semi-central','semi_central'].includes(v)) return 'semi';
+  if(['non','non-central','non_central'].includes(v)) return 'non';
+  return v.includes('semi') ? 'semi' : 'non';
+}
+
+function deriveTables(d){
+  const semi=[],non=[];
+  for(const s of (d.sites||[])){
+    if(!SKK_RE.test(String(s.siteId||''))) continue;
+    const group=normalizeGroup(s.group);
+    const base={siteId:s.siteId, siteName:s.siteName||'', capacityKw:s.capacityKw??null, rmccStart:s.rmccStart||'10:00', start:s.start||'10:20', finish:s.finish||'10:20', minKw:s.minKw??'', isActive:!!s.isActive, isCanceled:!!s.isCanceled};
+    if(group==='semi') semi.push({...base,maxKw:s.maxKw??''});
+    else non.push({...base,baselineKw1000:s.baselineKw1000??s.baselineKw0900??'—'});
+  }
+  const semiById=Object.fromEntries(semi.map(r=>[String(r.siteId), r]));
+  d.semiTable=SEMI_PINNED.map(id=>semiById[id]||{siteId:id, siteName:'', capacityKw:null, rmccStart:'10:00', start:'10:20', finish:'10:20', minKw:'', maxKw:'', isActive:false, isCanceled:false});
+  d.nonTable=non.sort((a,b)=>String(a.siteId).localeCompare(String(b.siteId)));
+}
+
+function status(el,t,c){el.className=`status ${c||''}`;el.textContent=t}
+function valid(field,value,row){ if(['rmccStart','start','finish'].includes(field)){const m=/^(\d{2}):(\d{2})$/.exec(String(value)); if(!m) return 'HH:mm'; const mins=+m[1]*60+ +m[2]; if(mins<600||mins>1020) return '10:00~17:00'; const sv=field==='start'?value:row.start, fv=field==='finish'?value:row.finish; if(sv&&fv&&hhmmMin(`2026-01-01T${sv}:00+09:00`)>hhmmMin(`2026-01-01T${fv}:00+09:00`)) return 'start<=finish'; } if(['minKw','maxKw'].includes(field)&&value!==''&&Number.isNaN(Number(value))) return 'number'; return null; }
+async function patch(siteId, field, value){ const date=document.getElementById('dateInput').value; return fetch('/api/schedule',{method:'PATCH',headers:{'Content-Type':'application/json',...headers()},body:JSON.stringify({date,siteId,field,value})}); }
+
+function renderPicker(){
+  if(!CURRENT) return;
+  const list=document.getElementById('pickerList');
+  const q=String(document.getElementById('pickerSearch').value||'').trim().toLowerCase();
+  const all=(CURRENT.sites||[])
+    .filter(s=>SKK_RE.test(String(s.siteId||'')))
+    .map(s=>({...s, group:normalizeGroup(s.group)}))
+    .sort((a,b)=>String(a.siteId).localeCompare(String(b.siteId)));
+  const rows=all.filter(s=>!q || String(s.siteId).toLowerCase().includes(q) || String(s.siteName||'').toLowerCase().includes(q));
+  list.innerHTML='';
+  rows.forEach(s=>{
+    const checked=pickerSelected.includes(s.siteId);
+    const el=document.createElement('label');
+    el.className='picker-item';
+    el.innerHTML=`<span><input type='checkbox' data-site='${s.siteId}' ${checked?'checked':''}/> <strong>${s.siteId}</strong> <span class='muted'>${s.siteName||''}</span></span><span class='muted'>${s.group}</span>`;
+    list.appendChild(el);
+  });
+  list.querySelectorAll('input[type=checkbox][data-site]').forEach(ch=>ch.onchange=()=>{
+    const id=ch.dataset.site;
+    if(ch.checked){ if(!pickerSelected.includes(id)) pickerSelected.push(id); }
+    else pickerSelected=pickerSelected.filter(v=>v!==id);
+    localStorage.setItem('summary.pickerSelected', JSON.stringify(pickerSelected));
+    document.getElementById('pickerCount').textContent=`${pickerSelected.length} selected`;
+  });
+  document.getElementById('pickerCount').textContent=`${pickerSelected.length} selected`;
+}
+
+function applyPickerToChart(){
+  const merged=[...new Set([...chartSelected, ...pickerSelected.filter(id=>SKK_RE.test(id))])];
+  chartSelected=merged;
+  localStorage.setItem('summary.chartSelected', JSON.stringify(chartSelected));
+  renderChart(CURRENT);
+}
+
+function applyPickerToTableActive(){
+  if(!isOp()) return;
+  const set=new Set(pickerSelected.filter(id=>SKK_RE.test(id)));
+  for(const s of (CURRENT.sites||[])){
+    if(set.has(s.siteId)) s.isActive=true;
+  }
+  for(const r of (CURRENT.semiTable||[])) if(set.has(r.siteId)) r.isActive=true;
+  for(const r of (CURRENT.nonTable||[])) if(set.has(r.siteId)) r.isActive=true;
+  renderData(CURRENT);
+}
+
+function bindPickerEvents(){
+  document.getElementById('pickerSearch').oninput=renderPicker;
+  document.getElementById('pickerChartBtn').onclick=applyPickerToChart;
+  document.getElementById('pickerActivateBtn').onclick=()=>{ if(isOp()) applyPickerToTableActive(); };
+  document.getElementById('pickerClearBtn').onclick=()=>{ pickerSelected=[]; localStorage.setItem('summary.pickerSelected','[]'); renderPicker(); };
+  document.getElementById('checkSemiAll').onchange=(e)=>{
+    const semiIds=(CURRENT?.semiTable||[]).map(r=>r.siteId).filter(id=>SKK_RE.test(id));
+    if(e.target.checked) pickerSelected=[...new Set([...pickerSelected,...semiIds])];
+    else pickerSelected=pickerSelected.filter(id=>!semiIds.includes(id));
+    localStorage.setItem('summary.pickerSelected', JSON.stringify(pickerSelected)); renderPicker();
+  };
+  document.getElementById('checkNonAll').onchange=(e)=>{
+    const nonIds=(CURRENT?.nonTable||[]).map(r=>r.siteId).filter(id=>SKK_RE.test(id));
+    if(e.target.checked) pickerSelected=[...new Set([...pickerSelected,...nonIds])];
+    else pickerSelected=pickerSelected.filter(id=>!nonIds.includes(id));
+    localStorage.setItem('summary.pickerSelected', JSON.stringify(pickerSelected)); renderPicker();
+  };
+}
+
+function renderTables(){
+  const roleOp=isOp();
+  document.getElementById('readonlyBadge').style.display=roleOp?'none':'inline';
+  document.getElementById('pickerActivateBtn').disabled=!roleOp;
+  const sem=document.getElementById('semiBody'), non=document.getElementById('nonBody');
+  sem.innerHTML=''; non.innerHTML='';
+
+  const mk=(row,isSemi)=>{
+    const tr=document.createElement('tr');
+    const disabled = roleOp && row.isActive ? '' : 'readonly';
+    tr.innerHTML=`<td><a class='site-link' href='/sites/${encodeURIComponent(row.siteId)}?date=${encodeURIComponent(document.getElementById('dateInput').value||'')}'>${row.siteId}</a></td><td class='editable-cell'><input data-field='rmccStart' value='${row.rmccStart||''}' ${disabled} /></td><td class='editable-cell'><input data-field='start' value='${row.start||''}' ${disabled} /></td><td class='editable-cell'><input data-field='finish' value='${row.finish||''}' ${disabled} /></td>${isSemi?`<td class='editable-cell'><input data-field='minKw' value='${row.minKw??''}' ${disabled} /></td><td class='editable-cell'><input data-field='maxKw' value='${row.maxKw??''}' ${disabled} /></td>`:`<td>${row.baselineKw1000??'—'}</td><td class='editable-cell'><input data-field='minKw' value='${row.minKw??''}' ${disabled} /></td>`}<td><button data-field='isActive' ${roleOp?'':'disabled'}>${row.isActive?'Active':'Inactive'}</button></td><td><button data-field='isCanceled' ${roleOp?'':'disabled'}>${row.isCanceled?'Canceled':'Normal'}</button></td><td class='status'></td>`;
+    const st=tr.querySelector('.status');
+
+    tr.querySelectorAll('input[data-field]').forEach(inp=>inp.onkeydown=async(e)=>{
+      if(e.key!=='Enter'||!roleOp||!row.isActive) return;
+      const f=inp.dataset.field,nv=inp.value.trim(),ov=row[f]??'';
+      const er=valid(f,nv,row); if(er){inp.classList.add('cell-err');status(st,'Failed','failed');return;}
+      inp.classList.remove('cell-err'); if(String(ov)===String(nv)){status(st,'','');return;}
+      status(st,'Saving…','saving'); const r=await patch(row.siteId,f,nv);
+      if(!r.ok){status(st,'Failed','failed'); inp.classList.add('cell-err');return;}
+      const b=await r.json(); row[f]=nv;
+      inp.parentElement.classList.add('cell-hl'); setTimeout(()=>inp.parentElement.classList.remove('cell-hl'),800);
+      status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300);
+      if(b.logLine){(CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(b.logLine); renderLogs();}
+      if(['minKw','maxKw','isCanceled','isActive'].includes(f)) renderData(CURRENT);
+    });
+
+    const activeBtn=tr.querySelector('button[data-field=isActive]');
+    activeBtn.onclick=async()=>{ if(!roleOp) return; status(st,'Saving…','saving'); const next=!row.isActive; const r=await patch(row.siteId,'isActive',next); if(!r.ok){status(st,'Failed','failed');return;} const b=await r.json(); row.isActive=next; activeBtn.textContent=next?'Active':'Inactive'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); if(b.logLine){(CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(b.logLine); renderLogs();} for(const s of (CURRENT.sites||[])) if(s.siteId===row.siteId) s.isActive=next; renderData(CURRENT); };
+    const cancelBtn=tr.querySelector('button[data-field=isCanceled]');
+    cancelBtn.onclick=async()=>{ if(!roleOp) return; status(st,'Saving…','saving'); const next=!row.isCanceled; const r=await patch(row.siteId,'isCanceled',next); if(!r.ok){status(st,'Failed','failed');return;} const b=await r.json(); row.isCanceled=next; cancelBtn.textContent=next?'Canceled':'Normal'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); if(b.logLine){(CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(b.logLine); renderLogs();} for(const s of (CURRENT.sites||[])) if(s.siteId===row.siteId) s.isCanceled=next; renderData(CURRENT); };
+    return tr;
+  };
+
+  (CURRENT.semiTable||[]).forEach(r=>sem.appendChild(mk(r,true)));
+  (CURRENT.nonTable||[]).forEach(r=>non.appendChild(mk(r,false)));
+}
+
+function renderChart(d){
+  const c=document.getElementById('chart').getContext('2d');
+  const w=900,h=260,p={l:52,r:12,t:10,b:30},pw=w-p.l-p.r,ph=h-p.t-p.b;
+  c.clearRect(0,0,w,h);
+  const xs=600,xe=1020, ym=yMax(d), toX=m=>p.l+((m-xs)/(xe-xs))*pw, toY=v=>p.t+(1-(v/ym))*ph;
+  for(let m=xs;m<=xe;m+=10){const x=toX(m),maj=m%60===0;c.strokeStyle=maj?'#e5e7eb':'#f1f5f9';c.beginPath();c.moveTo(x,p.t);c.lineTo(x,h-p.b);c.stroke(); if(maj){c.fillStyle='#6b7280';c.font='11px sans-serif';c.fillText(tlabel(m),x-14,h-10)}}
+  for(let y=0;y<=ym;y+=10000){const py=toY(y);c.strokeStyle='#e5e7eb';c.beginPath();c.moveTo(p.l,py);c.lineTo(w-p.r,py);c.stroke();c.fillStyle='#6b7280';c.font='11px sans-serif';c.fillText(String(y),4,py+3)}
+
+  const allIds=(d.sites||[]).map(s=>s.siteId).filter(id=>SKK_RE.test(String(id)));
+  const selected=(chartSelected.length?chartSelected: [d.summary?.siteId || allIds[0]]).filter(Boolean);
+  const palette=['#2563eb','#059669','#dc2626','#7c3aed','#d97706','#0e7490','#334155'];
+  hover.points=[];
+  selected.forEach((sid, idx)=>{
+    const cap=Number((d.sites||[]).find(s=>s.siteId===sid)?.capacityKw||0);
+    const s=(d.timeseriesBySiteId?.[sid]||[]).map(p=>({...p,mins:hhmmMin(p.measured_at),kw:Number(p.kw||0)})).filter(p=>p.mins>=600&&p.mins<=1020);
+    if(s.length<2) return;
+    c.strokeStyle=palette[idx%palette.length]; c.lineWidth=2; c.beginPath();
+    const pts=[];
+    s.forEach((p,i)=>{const x=toX(p.mins),y=toY(p.kw);pts.push({x,y,mins:p.mins,kw:p.kw,siteId:sid,cap,color:palette[idx%palette.length]}); i?c.lineTo(x,y):c.moveTo(x,y)});
+    c.stroke();
+    c.fillStyle=palette[idx%palette.length];
+    pts.forEach(p=>{c.beginPath();c.arc(p.x,p.y,2.2,0,Math.PI*2);c.fill()});
+    hover.points.push(...pts);
+  });
+  document.getElementById('title').textContent=`Summary Chart (${selected.filter(Boolean).join(', ')})`;
+  chartSelected=selected.filter(Boolean);
+  localStorage.setItem('summary.chartSelected', JSON.stringify(chartSelected));
+}
+
+function bindHover(){ const canvas=document.getElementById('chart'), tt=document.getElementById('tooltip'); canvas.onmousemove=(e)=>{const pts=hover.points;if(!pts.length)return; const r=canvas.getBoundingClientRect(); const mx=((e.clientX-r.left)/r.width)*canvas.width; let i=0,d=Math.abs(pts[0].x-mx); for(let j=1;j<pts.length;j++){const nd=Math.abs(pts[j].x-mx); if(nd<d){d=nd;i=j}} const p=pts[i]; const pct=p.cap>0?` (${((p.kw/p.cap)*100).toFixed(1)}%)`:''; tt.textContent=`${tlabel(p.mins)}\n${p.siteId} · ${num(p.kw)} kW${pct}`; tt.style.display='block'; tt.style.left=`${(p.x/canvas.width)*r.width}px`; tt.style.top=`${(p.y/canvas.height)*r.height}px`;}; canvas.onmouseleave=()=>tt.style.display='none';}
+
+function renderLogs(){const box=document.getElementById('logList'); const logs=(CURRENT?.systemLogs||[]).slice().reverse(); box.innerHTML=logs.length?logs.map(l=>`<div>${l}</div>`).join(''):'<div class="muted">No logs</div>'}
+
+function renderData(data){
+  deriveTables(data); CURRENT=data;
+  document.getElementById('subtitle').textContent=`${data.summary?.group||'-'} · capacity ${num(data.summary?.capacityKw)} kW`;
+  document.getElementById('note').textContent=data.summary?.note||'';
+  const tb=document.getElementById('tbody'); tb.innerHTML='';
+  for(const r of (data.table||[])){const tr=document.createElement('tr'); tr.innerHTML=`<td>${r.label}</td><td>${r.value}</td>`; tb.appendChild(tr);}
+  renderPicker();
+  renderChart(data);
+  renderTables();
+  renderLogs();
+}
+
+async function load(){
+  const m=await fetch('/api/meta',{headers:headers()}); const meta=await m.json();
+  const di=document.getElementById('dateInput'); const qd=new URL(window.location.href).searchParams.get('date');
+  if(!di.value) di.value=qd||localStorage.getItem('uikit.date')||meta.serverDateKst;
+  const date=di.value;
+  const r=await fetch(`/api/summary?date=${encodeURIComponent(date)}`,{headers:headers()});
+  if(!r.ok){alert(await r.text()); return;}
+  renderData(await r.json());
+}
+
+function init(){
+  document.getElementById('roleSel').value=localStorage.getItem('uikit.role')||'viewer';
+  document.getElementById('nameInput').value=localStorage.getItem('uikit.name')||'';
+  document.getElementById('dateInput').value=localStorage.getItem('uikit.date')||'';
+  document.getElementById('roleSel').onchange=()=>{localStorage.setItem('uikit.role',document.getElementById('roleSel').value); if(CURRENT) renderData(CURRENT)};
+  document.getElementById('nameInput').onchange=()=>localStorage.setItem('uikit.name',document.getElementById('nameInput').value.trim());
+  document.getElementById('dateInput').onchange=()=>{localStorage.setItem('uikit.date',document.getElementById('dateInput').value); load();};
+  document.getElementById('reloadBtn').onclick=load;
+  document.getElementById('exportBtn').onclick=async()=>{const d=document.getElementById('dateInput').value; const r=await fetch(`/api/export.xlsx?date=${encodeURIComponent(d)}`,{headers:headers()}); if(!r.ok){alert('Export failed: '+await r.text()); return;} const b=await r.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`summary_${d}.xlsx`; a.click(); URL.revokeObjectURL(a.href);};
+  bindPickerEvents();
+  bindHover();
+  load();
+}
+init();
+</script>
+</body>
+</html>

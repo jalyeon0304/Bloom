@@ -31,7 +31,13 @@
     .cell-hl { background:#eff6ff; transition: background .8s; }
     .cell-err { outline: 2px solid var(--err); }
     .tables-stack { display:grid; grid-template-columns:1fr; gap:12px; }
-    .table-wrap { overflow-x:auto; }
+    .table-wrap { overflow:auto; max-width:100%; }
+    .table-wrap thead th { position:sticky; top:0; background:#f8fafc; z-index:1; }
+    .accordion { border:1px solid var(--line); border-radius:10px; background:#fff; }
+    .accordion-title { cursor:pointer; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:8px; font-weight:700; padding:10px 12px; }
+    .accordion-title::-webkit-details-marker { display:none; }
+    .accordion-body { padding:0 12px 12px; }
+    .badge { display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; border-radius:10px; padding:0 7px; background:#eef2ff; color:#1f2937; font-size:11px; font-weight:700; }
     .logs { max-height:140px; overflow:auto; background:#f9fafb; padding:8px; border-radius:8px; font-size:12px; }
     @media (max-width:900px){ .grid,.tables-stack{ grid-template-columns:1fr; } }
   </style>
@@ -88,21 +94,33 @@
   </div>
 
   <div class="tables-stack">
-    <div class="card">
-      <strong>Semi-central (semi)</strong>
-      <div class="table-wrap"><table>
-        <thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>minKw</th><th>maxKw</th><th>cancel</th><th></th></tr></thead>
-        <tbody id="semiBody"></tbody>
-      </table>
-    </div>
-    <div class="card">
-      <strong>Non-central (non)</strong>
-      <div class="muted" style="margin-bottom:8px;">Baseline(10:00) = measured output nearest to 10:00 (kW)</div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>baseline(10:00)</th><th>minKw</th><th>cancel</th><th></th></tr></thead>
-        <tbody id="nonBody"></tbody>
-      </table>
-    </div>
+    <section class="card">
+      <details class="accordion" open>
+        <summary class="accordion-title">Semi-central <span class="badge" id="semiCount">0</span></summary>
+        <div class="accordion-body">
+          <div class="table-wrap">
+            <table class="edit-table" id="semiTable">
+              <thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>minKw</th><th>maxKw</th><th>cancel</th><th></th></tr></thead>
+              <tbody id="semiBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    </section>
+    <section class="card">
+      <details class="accordion" open>
+        <summary class="accordion-title">Non-central <span class="badge" id="nonCount">0</span></summary>
+        <div class="accordion-body">
+          <div class="muted" style="margin-bottom:8px;">Baseline(10:00) = measured output nearest to 10:00 (kW)</div>
+          <div class="table-wrap">
+            <table class="edit-table" id="nonTable">
+              <thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>baseline(10:00)</th><th>minKw</th><th>cancel</th><th></th></tr></thead>
+              <tbody id="nonBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    </section>
   </div>
 
   <div class="card">
@@ -316,6 +334,10 @@ function renderEditableTables(){
 
   (CURRENT.semiTable||[]).forEach(r=>semiBody.appendChild(makeRow(r,true)));
   (CURRENT.nonTable||[]).forEach(r=>nonBody.appendChild(makeRow(r,false)));
+  const semiCountEl=document.getElementById('semiCount');
+  const nonCountEl=document.getElementById('nonCount');
+  if(semiCountEl) semiCountEl.textContent=String((CURRENT.semiTable||[]).length);
+  if(nonCountEl) nonCountEl.textContent=String((CURRENT.nonTable||[]).length);
 }
 
 function renderLogs(){

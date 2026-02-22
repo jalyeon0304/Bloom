@@ -50,12 +50,18 @@
     table { width:100%; border-collapse:collapse; font-size:12px; }
     th, td { border-bottom:1px solid #eef2f7; padding:8px; text-align:right; white-space:nowrap; }
     th:first-child, td:first-child, th:nth-child(2), td:nth-child(2), th:nth-child(3), td:nth-child(3) { text-align:left; }
-    th { background:#f8fafc; position:sticky; top:0; z-index:1; }
+    th { background:#f8fafc; }
     .ok { color:#059669; font-weight:700; }
     .fail { color:#be123c; font-weight:700; }
     .warn-row { background:#fff1f2; }
     .warn-text { color:#be123c; font-weight:700; }
-    .scroll { max-height:380px; overflow:auto; }
+    .table-wrap { max-height:380px; overflow:auto; max-width:100%; }
+    .table-wrap thead th { position:sticky; top:0; background:#f8fafc; z-index:1; }
+    .accordion { border:1px solid #eef2f7; border-radius:10px; background:#fff; }
+    .accordion-title { cursor:pointer; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:8px; font-weight:700; padding:10px 12px; }
+    .accordion-title::-webkit-details-marker { display:none; }
+    .accordion-body { padding:0 12px 12px; }
+    .badge { font-size:11px; padding:2px 8px; border-radius:12px; background:#eef2ff; }
     @media (max-width:1000px){ .layout { grid-template-columns:1fr; } }
   </style>
 </head>
@@ -81,30 +87,38 @@
         <div class="chart-wrap"><canvas id="mainChart" width="780" height="220"></canvas><div id="chartTooltip" class="chart-tooltip"></div></div>
       </div>
 
-      <div class="card">
-        <strong>Key Metrics Table (Semi-central: min/max ±5%, Non-central: target% within deadline)</strong>
-        <div class="scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Site ID</th><th>Group</th><th>Result</th>
-                <th>Nameplate</th><th>Submitted</th><th>Open</th><th>Open-Submitted gap</th>
-                <th>Min</th><th>Min/Submitted</th><th>Min/Open</th>
-                <th>Max</th><th>Max/Submitted</th><th>Max/Open</th>
-                <th>Min T(min)</th><th>Max T(min)</th><th>Target%</th><th>Target kW</th><th>Target/Nameplate</th><th>Deadline (min)</th>
-              </tr>
-            </thead>
-            <tbody id="metricsBody"></tbody>
-          </table>
-        </div>
-      </div>
+      <section class="card">
+        <details class="accordion" open>
+          <summary class="accordion-title">Semi-central / Non-central Metrics <span class="badge" id="metricsCount">0</span></summary>
+          <div class="accordion-body">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Site ID</th><th>Group</th><th>Result</th>
+                    <th>Nameplate</th><th>Submitted</th><th>Open</th><th>Open-Submitted gap</th>
+                    <th>Min</th><th>Min/Submitted</th><th>Min/Open</th>
+                    <th>Max</th><th>Max/Submitted</th><th>Max/Open</th>
+                    <th>Min T(min)</th><th>Max T(min)</th><th>Target%</th><th>Target kW</th><th>Target/Nameplate</th><th>Deadline (min)</th>
+                  </tr>
+                </thead>
+                <tbody id="metricsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      </section>
     </div>
 
-    <div class="card">
-      <strong>Site Basket (+ Activate)</strong>
-      <div class="muted">Semi-central: min/max + (toggle) minT/maxT, Non-central: target%(0/40/60)+deadline</div>
-      <div id="masterList"></div>
-    </div>
+    <section class="card">
+      <details class="accordion" open>
+        <summary class="accordion-title">Site Basket (+ Activate)</summary>
+        <div class="accordion-body">
+          <div class="muted">Semi-central: min/max + (toggle) minT/maxT, Non-central: target%(0/40/60)+deadline</div>
+          <div id="masterList"></div>
+        </div>
+      </details>
+    </section>
   </div>
 </div>
 
@@ -318,6 +332,8 @@ async function renderTable(){
   tbody.innerHTML = '';
   if(!sites.length){
     tbody.innerHTML = '<tr><td colspan="19" class="muted">No activated sites.</td></tr>';
+    const metricsCountEl = document.getElementById('metricsCount');
+    if (metricsCountEl) metricsCountEl.textContent = '0';
     return;
   }
   if(!selectedSite || !sites.find(s=>s.site_id===selectedSite)) selectedSite = sites[0].site_id;
@@ -350,6 +366,8 @@ async function renderTable(){
     tr.onclick = ()=>{ selectedSite = s.site_id; renderChart(); };
     tbody.appendChild(tr);
   }
+  const metricsCountEl = document.getElementById('metricsCount');
+  if (metricsCountEl) metricsCountEl.textContent = String(sites.length);
 }
 
 async function renderChart(){

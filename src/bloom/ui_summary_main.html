@@ -142,13 +142,6 @@ function status(el,t,c){el.className=`status ${c||''}`;el.textContent=t}
 function valid(field,value,row){ if(['rmccStart','start','finish'].includes(field)){const m=/^(\d{2}):(\d{2})$/.exec(String(value)); if(!m) return 'HH:mm'; const mins=+m[1]*60+ +m[2]; if(mins<600||mins>1020) return '10:00~17:00'; const sv=field==='start'?value:row.start, fv=field==='finish'?value:row.finish; if(sv&&fv&&hhmmMin(`2026-01-01T${sv}:00+09:00`)>hhmmMin(`2026-01-01T${fv}:00+09:00`)) return 'start<=finish'; } if(['minKw','maxKw'].includes(field)&&value!==''&&Number.isNaN(Number(value))) return 'number'; return null; }
 async function patch(siteId, field, value){ const date=document.getElementById('dateInput').value; return fetch('/api/schedule',{method:'PATCH',headers:{'Content-Type':'application/json',...headers()},body:JSON.stringify({date,siteId,field,value})}); }
 
-function kstNowParts(){
-  const now=new Date();
-  const dateFmt=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'});
-  const timeFmt=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hour12:false});
-  return {date:dateFmt.format(now), time:timeFmt.format(now)};
-}
-
 function normalizeFieldValue(field,value){
   if(value==null) return '';
   if(['rmccStart','start','finish'].includes(field)){
@@ -158,23 +151,15 @@ function normalizeFieldValue(field,value){
   return String(value).trim();
 }
 
-function orderLabelOf(row){ return (row?.customerOrder || row?.orderLabel || 'KPX Rampdown'); }
-
-function appendEventLog(siteId, orderLabel, event){
-  const parts=kstNowParts();
-  const selectedDate=(document.getElementById('dateInput')?.value||'').trim();
-  const baseDate=selectedDate||parts.date;
-  UI_LOGS.push(`[${baseDate} ${parts.time}] ${siteId} ${orderLabel} ${event}`);
+function appendEventLog(line){
+  if(!line) return;
+  UI_LOGS.push(String(line));
   renderLogs();
 }
 
-function logEvent(type,payload){
-  const siteId=payload.siteId;
-  const orderLabel=payload.orderLabel||'KPX Rampdown';
-  if(type==='activate') appendEventLog(siteId,orderLabel,payload.active?'Activate':'Deactivate');
-  else if(type==='cancel') appendEventLog(siteId,orderLabel,payload.canceled?'Canceled':'Cancel cleared');
-  else if(type==='changed') appendEventLog(siteId,orderLabel,`changed (${payload.changes.join('; ')})`);
-  else if(type==='error') appendEventLog(siteId,orderLabel,`error (${payload.message})`);
+function logError(siteId,message){
+  const date=(document.getElementById('dateInput')?.value||'').trim() || '0000-00-00';
+  appendEventLog(`[${date} --:--] ${siteId} KPX Rampdown error (${message})`);
 }
 
 function renderPicker(){
@@ -262,11 +247,14 @@ function renderTables(){
       const oldNorm=normalizeFieldValue(f,ov), newNorm=normalizeFieldValue(f,nv);
       if(oldNorm===newNorm){status(st,'','');return;}
       status(st,'Saving…','saving'); const r=await patch(row.siteId,f,nv);
-      if(!r.ok){status(st,'Failed','failed'); inp.classList.add('cell-err'); logEvent('error',{siteId:row.siteId,orderLabel:orderLabelOf(row),message:`save failed (${f})`});return;}
-      await r.json(); row[f]=nv;
+      if(!r.ok){status(st,'Failed','failed'); inp.classList.add('cell-err'); logError(row.siteId,`save failed (${f})`);return;}
+      const b=await r.json(); row[f]=nv;
       inp.parentElement.classList.add('cell-hl'); setTimeout(()=>inp.parentElement.classList.remove('cell-hl'),800);
       status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300);
-      logEvent('changed',{siteId:row.siteId,orderLabel:orderLabelOf(row),changes:[`${f}: ${oldNorm||'∅'} → ${newNorm||'∅'}`]});
+      if(b.logLine){
+        (CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(b.logLine);
+        appendEventLog(b.logLine);
+      }
       if(['minKw','maxKw','isCanceled','isActive'].includes(f)) renderData(CURRENT);
     };
 
@@ -276,9 +264,9 @@ function renderTables(){
     });
 
     const activeBtn=tr.querySelector('button[data-field=isActive]');
-    activeBtn.onclick=async()=>{ if(!roleOp) return; status(st,'Saving…','saving'); const next=!row.isActive; const r=await patch(row.siteId,'isActive',next); if(!r.ok){status(st,'Failed','failed'); logEvent('error',{siteId:row.siteId,orderLabel:orderLabelOf(row),message:'activate toggle failed'});return;} await r.json(); row.isActive=next; activeBtn.textContent=next?'Active':'Inactive'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); logEvent('activate',{siteId:row.siteId,orderLabel:orderLabelOf(row),active:next}); for(const s of (CURRENT.sites||[])) if(s.siteId===row.siteId) s.isActive=next; renderData(CURRENT); };
+    activeBtn.onclick=async()=>{ if(!roleOp) return; status(st,'Saving…','saving'); const next=!row.isActive; const r=await patch(row.siteId,'isActive',next); if(!r.ok){status(st,'Failed','failed'); logError(row.siteId,'activate toggle failed');return;} const b=await r.json(); row.isActive=next; activeBtn.textContent=next?'Active':'Inactive'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); if(b.logLine){(CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(b.logLine); appendEventLog(b.logLine);} for(const s of (CURRENT.sites||[])) if(s.siteId===row.siteId) s.isActive=next; renderData(CURRENT); };
     const cancelBtn=tr.querySelector('button[data-field=isCanceled]');
-    cancelBtn.onclick=async()=>{ if(!roleOp) return; status(st,'Saving…','saving'); const next=!row.isCanceled; const r=await patch(row.siteId,'isCanceled',next); if(!r.ok){status(st,'Failed','failed'); logEvent('error',{siteId:row.siteId,orderLabel:orderLabelOf(row),message:'cancel toggle failed'});return;} await r.json(); row.isCanceled=next; cancelBtn.textContent=next?'Canceled':'Normal'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); logEvent('cancel',{siteId:row.siteId,orderLabel:orderLabelOf(row),canceled:next}); for(const s of (CURRENT.sites||[])) if(s.siteId===row.siteId) s.isCanceled=next; renderData(CURRENT); };
+    cancelBtn.onclick=async()=>{ if(!roleOp) return; status(st,'Saving…','saving'); const next=!row.isCanceled; const r=await patch(row.siteId,'isCanceled',next); if(!r.ok){status(st,'Failed','failed'); logError(row.siteId,'cancel toggle failed');return;} const b=await r.json(); row.isCanceled=next; cancelBtn.textContent=next?'Canceled':'Normal'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); if(b.logLine){(CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(b.logLine); appendEventLog(b.logLine);} for(const s of (CURRENT.sites||[])) if(s.siteId===row.siteId) s.isCanceled=next; renderData(CURRENT); };
     return tr;
   };
 
@@ -321,6 +309,7 @@ function renderLogs(){const box=document.getElementById('logList'); const logs=U
 
 function renderData(data){
   deriveTables(data); CURRENT=data;
+  UI_LOGS=(data.systemLogs||[]).slice();
   document.getElementById('subtitle').textContent=`${data.summary?.group||'-'} · capacity ${num(data.summary?.capacityKw)} kW`;
   document.getElementById('note').textContent=data.summary?.note||'';
   const tb=document.getElementById('tbody'); tb.innerHTML='';
@@ -345,11 +334,12 @@ function init(){
   document.getElementById('roleSel').value=localStorage.getItem('uikit.role')||'viewer';
   document.getElementById('nameInput').value=localStorage.getItem('uikit.name')||'';
   document.getElementById('dateInput').value=localStorage.getItem('uikit.date')||'';
-  document.getElementById('roleSel').onchange=()=>{localStorage.setItem('uikit.role',document.getElementById('roleSel').value); if(CURRENT) renderData(CURRENT)};
+  document.getElementById('roleSel').onchange=()=>{localStorage.setItem('uikit.role',document.getElementById('roleSel').value); document.getElementById('exportBtn').disabled=!isOp(); if(CURRENT) renderData(CURRENT)};
   document.getElementById('nameInput').onchange=()=>localStorage.setItem('uikit.name',document.getElementById('nameInput').value.trim());
   document.getElementById('dateInput').onchange=()=>{localStorage.setItem('uikit.date',document.getElementById('dateInput').value); load();};
   document.getElementById('reloadBtn').onclick=load;
-  document.getElementById('exportBtn').onclick=async()=>{const d=document.getElementById('dateInput').value; const r=await fetch(`/api/export.xlsx?date=${encodeURIComponent(d)}`,{headers:headers()}); if(!r.ok){alert('Export failed: '+await r.text()); return;} const b=await r.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`summary_${d}.xlsx`; a.click(); URL.revokeObjectURL(a.href);};
+  document.getElementById('exportBtn').disabled=!isOp();
+  document.getElementById('exportBtn').onclick=async()=>{if(!isOp()) return; const d=document.getElementById('dateInput').value; const r=await fetch(`/api/export.xlsx?date=${encodeURIComponent(d)}`,{headers:headers()}); if(!r.ok){alert('Export failed: '+await r.text()); return;} const b=await r.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`summary_${d}.xlsx`; a.click(); URL.revokeObjectURL(a.href);};
   bindPickerEvents();
   bindHover();
   load();

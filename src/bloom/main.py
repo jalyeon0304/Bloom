@@ -148,6 +148,82 @@ def _now_kst() -> datetime:
     return datetime.now(tz=ZoneInfo("Asia/Seoul"))
 
 
+def _normalize_log_value(field: str, value: str | int | bool | None) -> str:
+    if value is None:
+        return ""
+    if field in {"rmccStart", "start", "finish"}:
+        text = str(value).strip()
+        m = re.match(r"^(\d{1,2}):(\d{1,2})$", text)
+        if m:
+            return f"{int(m.group(1)):02d}:{int(m.group(2)):02d}"
+        return text
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value).strip()
+
+
+def _order_label(site_map: dict) -> str:
+    return str(site_map.get("customerOrder") or site_map.get("orderLabel") or "KPX Rampdown")
+
+
+def _make_operation_log(
+    *,
+    date_text: str,
+    site_id: str,
+    site_map: dict,
+    field: str,
+    old_value: str | int | bool | None,
+    new_value: str | int | bool,
+) -> dict:
+    timestamp_kst = f"{date_text} {_now_kst().strftime('%H:%M')}"
+    order_label = _order_label(site_map)
+    if field == "isActive":
+        event_type = "ACTIVATE" if bool(new_value) else "DEACTIVATE"
+        detail = f"{order_label} {'Activate' if bool(new_value) else 'Deactivate'}"
+    elif field == "isCanceled":
+        event_type = "CANCELED" if bool(new_value) else "CANCEL_CLEARED"
+        detail = f"{order_label} {'Canceled' if bool(new_value) else 'Cancel cleared'}"
+    else:
+        event_type = "CHANGED"
+        old_norm = _normalize_log_value(field, old_value) or "∅"
+        new_norm = _normalize_log_value(field, new_value) or "∅"
+        detail = f"{order_label} changed ({field}: {old_norm} → {new_norm})"
+    message = f"[{timestamp_kst}] {site_id} {detail}"
+    return {
+        "timestampKst": timestamp_kst,
+        "siteId": site_id,
+        "eventType": event_type,
+        "detail": detail,
+        "message": message,
+    }
+
+
+def _normalize_operation_logs(logs: list) -> list[dict]:
+    normalized: list[dict] = []
+    for item in logs:
+        if isinstance(item, dict) and item.get("message"):
+            normalized.append(
+                {
+                    "timestampKst": str(item.get("timestampKst") or ""),
+                    "siteId": str(item.get("siteId") or ""),
+                    "eventType": str(item.get("eventType") or "CHANGED"),
+                    "detail": str(item.get("detail") or ""),
+                    "message": str(item.get("message") or ""),
+                }
+            )
+        elif isinstance(item, str):
+            normalized.append(
+                {
+                    "timestampKst": "",
+                    "siteId": "",
+                    "eventType": "CHANGED",
+                    "detail": item,
+                    "message": item,
+                }
+            )
+    return normalized
+
+
 def _make_logline(site_id: str, field: str, old: str, new: str, user: str | None) -> str:
     stamp = _now_kst().strftime("%H:%M:%S")
     who = user or "unknown"
@@ -583,7 +659,7 @@ def _build_summary_payload(date: str | None = None) -> dict:
             kw_sum = sum((pts[hour - 10]["kw"] for pts in per_site.values() if len(pts) >= (hour - 9)))
             aggregate.append({"measured_at": stamp, "kw": kw_sum})
 
-    logs = store["systemLogs"].get(used_date, [])
+    logs = _normalize_operation_logs(store["systemLogs"].get(used_date, []))
     return {
         "scenario": "live",
         "date": used_date,
@@ -600,7 +676,8 @@ def _build_summary_payload(date: str | None = None) -> dict:
             {"label": "Active sites", "value": str(len([s for s in sites if s["isActive"] and not s["isCanceled"]]))},
             {"label": "yMax", "value": f"{y_max:,} kW"},
         ],
-        "systemLogs": logs,
+        "systemLogs": [x["message"] for x in logs],
+        "operationLogs": logs,
         "userNote": "",
         "yMaxKw": y_max,
     }
@@ -648,15 +725,27 @@ def api_patch_schedule(
     old = site_map.get(payload.field)
     site_map[payload.field] = value
 
+    old_norm = _normalize_log_value(payload.field, old)
+    new_norm = _normalize_log_value(payload.field, value)
+    changed = old_norm != new_norm
+
     log_line = None
-    if str(old) != str(value):
-        log_line = _make_uikit_logline(payload.siteId, payload.field, str(old), str(value), x_user_name)
+    if changed:
+        log_obj = _make_operation_log(
+            date_text=used_date,
+            site_id=payload.siteId,
+            site_map=site_map,
+            field=payload.field,
+            old_value=old,
+            new_value=value,
+        )
+        log_line = log_obj["message"]
         logs = store["systemLogs"].setdefault(used_date, [])
-        logs.append(log_line)
+        logs.append(log_obj)
 
     _save_schedule_store(store)
 
-    if str(old) != str(value):
+    if changed:
         latest_summary = _build_summary_payload(used_date)
         latest_site = next((s for s in latest_summary.get("sites", []) if s.get("siteId") == payload.siteId), None)
         if latest_site:
@@ -747,19 +836,25 @@ def api_export_xlsx(
     for s in payload.get("sites", []):
         if s.get("group") != "semi":
             continue
-        semi.append([s.get("siteId"), s.get("siteName"), _excel_kst_datetime(summary.get("date", ""), s.get("rmccStart")), _excel_kst_datetime(summary.get("date", ""), s.get("start")), _excel_kst_datetime(summary.get("date", ""), s.get("finish")), s.get("minKw"), s.get("maxKw"), s.get("isCanceled"), s.get("isActive")])
+        semi.append([s.get("siteId"), s.get("siteName"), _excel_kst_datetime(payload.get("date", ""), s.get("rmccStart")), _excel_kst_datetime(payload.get("date", ""), s.get("start")), _excel_kst_datetime(payload.get("date", ""), s.get("finish")), s.get("minKw"), s.get("maxKw"), s.get("isCanceled"), s.get("isActive")])
 
     non = wb.create_sheet("NonCentral")
     non.append(["siteId", "siteName", "rmccStart", "start", "finish", "baselineKw1000", "minKw", "isCanceled", "isActive"])
     for s in payload.get("sites", []):
         if s.get("group") != "non":
             continue
-        non.append([s.get("siteId"), s.get("siteName"), _excel_kst_datetime(summary.get("date", ""), s.get("rmccStart")), _excel_kst_datetime(summary.get("date", ""), s.get("start")), _excel_kst_datetime(summary.get("date", ""), s.get("finish")), s.get("baselineKw1000") if s.get("baselineKw1000") is not None else s.get("baselineKw0900"), s.get("minKw"), s.get("isCanceled"), s.get("isActive")])
+        non.append([s.get("siteId"), s.get("siteName"), _excel_kst_datetime(payload.get("date", ""), s.get("rmccStart")), _excel_kst_datetime(payload.get("date", ""), s.get("start")), _excel_kst_datetime(payload.get("date", ""), s.get("finish")), s.get("baselineKw1000") if s.get("baselineKw1000") is not None else s.get("baselineKw0900"), s.get("minKw"), s.get("isCanceled"), s.get("isActive")])
 
-    logs = wb.create_sheet("SystemLogs")
-    logs.append(["logLine"])
-    for line in payload.get("systemLogs", []):
-        logs.append([line])
+    logs_sheet = wb.create_sheet("Logs")
+    logs_sheet.append(["timestampKst", "siteId", "eventType", "detail", "message"])
+    for row in payload.get("operationLogs", []):
+        logs_sheet.append([
+            row.get("timestampKst", ""),
+            row.get("siteId", ""),
+            row.get("eventType", ""),
+            row.get("detail", ""),
+            row.get("message", ""),
+        ])
 
     note = wb.create_sheet("UserNote")
     note.append(["note"])

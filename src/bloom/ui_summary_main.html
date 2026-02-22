@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bloom Summary</title>
+  <style>
+    :root { --bg:#f3f4f6; --card:#fff; --text:#111827; --muted:#6b7280; --line:#e5e7eb; --primary:#2563eb; --ok:#059669; --err:#dc2626; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+    .wrap { max-width:1200px; margin:0 auto; padding:16px; display:grid; gap:12px; }
+    .card { background:var(--card); border-radius:12px; padding:14px; box-shadow:0 4px 14px rgba(0,0,0,.06); }
+    .top,.row { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+    .controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .btn { border:1px solid var(--line); border-radius:16px; padding:6px 10px; cursor:pointer; background:#fff; }
+    .muted { color:var(--muted); font-size:12px; }
+    .readonly { color:var(--err); font-size:12px; font-weight:700; }
+    .grid { display:grid; grid-template-columns:1.2fr 1fr; gap:12px; }
+    #chart { width:100%; height:240px; }
+    .chart-wrap { position:relative; }
+    .tooltip { position:absolute; display:none; pointer-events:none; background:#111827; color:#fff; border-radius:8px; font-size:11px; line-height:1.3; padding:6px 8px; white-space:pre-line; transform:translate(8px,-110%); }
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th, td { border-bottom:1px solid var(--line); padding:8px; text-align:left; }
+    .status { min-width:74px; text-align:right; font-size:12px; }
+    .saving { color:#2563eb; }
+    .saved { color:var(--ok); font-weight:700; }
+    .failed { color:var(--err); font-weight:700; }
+    .editable-cell input { width:90px; padding:4px 6px; border:1px solid #d1d5db; border-radius:6px; }
+    .cell-hl { background:#eff6ff; transition: background .8s; }
+    .cell-err { outline: 2px solid var(--err); }
+    .tables-stack { display:grid; grid-template-columns:1fr; gap:12px; }
+    .table-wrap { overflow-x:auto; }
+    .logs { max-height:140px; overflow:auto; background:#f9fafb; padding:8px; border-radius:8px; font-size:12px; }
+    a.site-link { color:#1d4ed8; text-decoration:none; font-weight:600; }
+    @media (max-width:900px){ .grid,.tables-stack{ grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card top">
+    <div><strong>Summary (/dashboard)</strong><div class="muted">Live API production view</div></div>
+    <div class="controls">
+      <label class="muted">Role
+        <select id="roleSel"><option value="viewer">viewer</option><option value="operator">operator</option></select>
+      </label>
+      <label class="muted">Name <input id="nameInput" placeholder="optional"/></label>
+      <label class="muted">Date <input id="dateInput" type="date"/></label>
+      <button class="btn" id="reloadBtn">Reload</button>
+      <button class="btn" id="exportBtn">Export .xlsx</button>
+      <span id="readonlyBadge" class="readonly">Viewer mode</span>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <div class="row"><strong id="title">Summary Chart</strong><span id="subtitle" class="muted"></span></div>
+      <div class="chart-wrap"><canvas id="chart" width="720" height="240"></canvas><div id="tooltip" class="tooltip"></div></div>
+    </div>
+    <div class="card"><strong>Summary Table</strong><table><tbody id="tbody"></tbody></table><p class="muted" id="note"></p></div>
+  </div>
+  <div class="tables-stack">
+    <div class="card"><strong>Semi-central</strong><div class="table-wrap"><table><thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>minKw</th><th>maxKw</th><th>cancel</th><th></th></tr></thead><tbody id="semiBody"></tbody></table></div></div>
+    <div class="card"><strong>Non-central</strong><div class="muted" style="margin-bottom:8px;">Baseline(10:00) = measured output nearest to 10:00 (kW)</div><div class="table-wrap"><table><thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>baseline(10:00)</th><th>minKw</th><th>cancel</th><th></th></tr></thead><tbody id="nonBody"></tbody></table></div></div>
+  </div>
+  <div class="card"><strong>System Logs</strong><div id="logList" class="logs"></div></div>
+</div>
+<script>
+let CURRENT=null; const hover={idx:-1,points:[]};
+const SKK_RE=/^SKK\d{3}$/;
+const num=v=>Number(v||0).toLocaleString('en-US');
+const role=()=>localStorage.getItem('uikit.role')||'viewer'; const isOp=()=>role()==='operator';
+const headers=()=>{const h={'X-User-Role':role()}; const n=(localStorage.getItem('uikit.name')||'').trim(); if(n) h['X-User-Name']=n; return h;};
+const hhmmMin=v=>{const m=String(v||'').match(/T(\d{2}):(\d{2})/)||String(v||'').match(/^(\d{2}):(\d{2})$/); return m?Number(m[1])*60+Number(m[2]):0};
+const tlabel=m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+function activeSites(d){return (d.sites||[]).filter(s=>s.isActive && !s.isCanceled)}
+function yMax(d){const caps=activeSites(d).map(s=>Number(s.capacityKw||0)); return caps.length?Math.ceil(Math.max(...caps)/10000)*10000:10000}
+function deriveTables(d){
+  if(d.semiTable&&d.nonTable) {
+    d.semiTable = (d.semiTable||[]).slice().sort((a,b)=>String(a.siteId).localeCompare(String(b.siteId)));
+    d.nonTable = (d.nonTable||[]).slice().sort((a,b)=>String(a.siteId).localeCompare(String(b.siteId)));
+    return;
+  }
+  const semi=[],non=[];
+  for(const s of (d.sites||[])){
+    const base={siteId:s.siteId, rmccStart:s.rmccStart||'10:00', start:s.start||'10:20', finish:s.finish||'10:20', minKw:s.minKw??5000, isCanceled:!!s.isCanceled};
+    if(s.group==='semi') semi.push({...base,maxKw:s.maxKw??10000});
+    else non.push({...base,baselineKw1000:s.baselineKw1000??'—'});
+  }
+  semi.sort((a,b)=>String(a.siteId).localeCompare(String(b.siteId)));
+  non.sort((a,b)=>String(a.siteId).localeCompare(String(b.siteId)));
+  d.semiTable=semi;
+  d.nonTable=non;
+}
+function renderChart(d){ const c=document.getElementById('chart').getContext('2d'); const w=720,h=240,p={l:52,r:12,t:10,b:30},pw=w-p.l-p.r,ph=h-p.t-p.b; c.clearRect(0,0,w,h); const xs=600,xe=1020, ym=yMax(d), toX=m=>p.l+((m-xs)/(xe-xs))*pw, toY=v=>p.t+(1-(v/ym))*ph;
+for(let m=xs;m<=xe;m+=10){const x=toX(m),maj=m%60===0;c.strokeStyle=maj?'#e5e7eb':'#f1f5f9';c.beginPath();c.moveTo(x,p.t);c.lineTo(x,h-p.b);c.stroke(); if(maj){c.fillStyle='#6b7280';c.font='11px sans-serif';c.fillText(tlabel(m),x-14,h-10)}}
+for(let y=0;y<=ym;y+=10000){const py=toY(y);c.strokeStyle='#e5e7eb';c.beginPath();c.moveTo(p.l,py);c.lineTo(w-p.r,py);c.stroke();c.fillStyle='#6b7280';c.font='11px sans-serif';c.fillText(String(y),4,py+3)}
+const sid=d.summary?.siteId||(d.sites?.[0]?.siteId); const cap=Number((d.sites||[]).find(s=>s.siteId===sid)?.capacityKw||0); const s=(d.timeseriesBySiteId?.[sid]||[]).map(p=>({...p,mins:hhmmMin(p.measured_at),kw:Number(p.kw||0)})).filter(p=>p.mins>=600&&p.mins<=1020);
+if(s.length<2){hover.points=[]; return;} c.strokeStyle='#2563eb'; c.lineWidth=2; c.beginPath(); const pts=[]; s.forEach((p,i)=>{const x=toX(p.mins),y=toY(p.kw);pts.push({x,y,mins:p.mins,kw:p.kw,siteId:sid,cap}); i?c.lineTo(x,y):c.moveTo(x,y)}); c.stroke(); c.fillStyle='#2563eb'; pts.forEach(p=>{c.beginPath();c.arc(p.x,p.y,2.5,0,Math.PI*2);c.fill()}); hover.points=pts; }
+function bindHover(){ const canvas=document.getElementById('chart'), tt=document.getElementById('tooltip'); canvas.onmousemove=(e)=>{const pts=hover.points;if(!pts.length)return; const r=canvas.getBoundingClientRect(); const mx=((e.clientX-r.left)/r.width)*canvas.width; let i=0,d=Math.abs(pts[0].x-mx); for(let j=1;j<pts.length;j++){const nd=Math.abs(pts[j].x-mx); if(nd<d){d=nd;i=j}} const p=pts[i]; const pct=p.cap>0?` (${((p.kw/p.cap)*100).toFixed(1)}%)`:''; tt.textContent=`${tlabel(p.mins)}\n${p.siteId} · ${num(p.kw)} kW${pct}`; tt.style.display='block'; tt.style.left=`${(p.x/canvas.width)*r.width}px`; tt.style.top=`${(p.y/canvas.height)*r.height}px`;}; canvas.onmouseleave=()=>tt.style.display='none';}
+function status(el,t,c){el.className=`status ${c||''}`;el.textContent=t}
+function valid(field,value,row){ if(['rmccStart','start','finish'].includes(field)){const m=/^(\d{2}):(\d{2})$/.exec(String(value)); if(!m) return 'HH:mm'; const mins=+m[1]*60+ +m[2]; if(mins<600||mins>1020) return '10:00~17:00'; const sv=field==='start'?value:row.start, fv=field==='finish'?value:row.finish; if(sv&&fv&&hhmmMin(`2026-01-01T${sv}:00+09:00`)>hhmmMin(`2026-01-01T${fv}:00+09:00`)) return 'start<=finish'; } if(['minKw','maxKw'].includes(field)&&value!==''&&Number.isNaN(Number(value))) return 'number'; return null; }
+async function patch(siteId, field, value){ const date=document.getElementById('dateInput').value; return fetch('/api/schedule',{method:'PATCH',headers:{'Content-Type':'application/json',...headers()},body:JSON.stringify({date,siteId,field,value})}); }
+function renderTables(){ const roleOp=isOp(); document.getElementById('readonlyBadge').style.display=roleOp?'none':'inline'; const sem=document.getElementById('semiBody'), non=document.getElementById('nonBody'); sem.innerHTML=''; non.innerHTML='';
+const mk=(row,isSemi)=>{const tr=document.createElement('tr'); tr.innerHTML=`<td><a class='site-link' href='/sites/${encodeURIComponent(row.siteId)}?date=${encodeURIComponent(document.getElementById('dateInput').value||'')}'>${row.siteId}</a></td><td class='editable-cell'><input data-field='rmccStart' value='${row.rmccStart||''}' ${roleOp?'':'readonly'} /></td><td class='editable-cell'><input data-field='start' value='${row.start||''}' ${roleOp?'':'readonly'} /></td><td class='editable-cell'><input data-field='finish' value='${row.finish||''}' ${roleOp?'':'readonly'} /></td>${isSemi?`<td class='editable-cell'><input data-field='minKw' value='${row.minKw??''}' ${roleOp?'':'readonly'} /></td><td class='editable-cell'><input data-field='maxKw' value='${row.maxKw??''}' ${roleOp?'':'readonly'} /></td>`:`<td>${row.baselineKw1000??'—'}</td><td class='editable-cell'><input data-field='minKw' value='${row.minKw??''}' ${roleOp?'':'readonly'} /></td>`}<td><button data-field='isCanceled' ${roleOp?'':'disabled'}>${row.isCanceled?'Canceled':'Active'}</button></td><td class='status'></td>`;
+const st=tr.querySelector('.status'); tr.querySelectorAll('input[data-field]').forEach(inp=>inp.onkeydown=async(e)=>{if(e.key!=='Enter'||!roleOp)return; const f=inp.dataset.field,nv=inp.value.trim(),ov=row[f]??''; const er=valid(f,nv,row); if(er){inp.classList.add('cell-err');status(st,'Failed','failed');return;} inp.classList.remove('cell-err'); if(String(ov)===String(nv)){status(st,'','');return;} status(st,'Saving…','saving'); const r=await patch(row.siteId,f,nv); if(!r.ok){status(st,'Failed','failed'); inp.classList.add('cell-err');return;} const b=await r.json(); row[f]=nv; inp.parentElement.classList.add('cell-hl'); setTimeout(()=>inp.parentElement.classList.remove('cell-hl'),800); status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); if(b.logLine){(CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(b.logLine); renderLogs();} if(['minKw','maxKw','isCanceled'].includes(f)) renderData(CURRENT);});
+const btn=tr.querySelector('button[data-field=isCanceled]'); btn.onclick=async()=>{if(!roleOp)return; status(st,'Saving…','saving'); const next=!row.isCanceled; const r=await patch(row.siteId,'isCanceled',next); if(!r.ok){status(st,'Failed','failed');return;} const b=await r.json(); row.isCanceled=next; btn.textContent=next?'Canceled':'Active'; status(st,'Saved ✓','saved'); setTimeout(()=>status(st,'',''),1300); if(b.logLine){(CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(b.logLine); renderLogs();} for(const s of (CURRENT.sites||[])) if(s.siteId===row.siteId) s.isCanceled=next; renderData(CURRENT);};
+return tr;};
+(CURRENT.semiTable||[]).forEach(r=>sem.appendChild(mk(r,true))); (CURRENT.nonTable||[]).forEach(r=>non.appendChild(mk(r,false)));}
+function renderLogs(){const box=document.getElementById('logList'); const logs=(CURRENT?.systemLogs||[]).slice().reverse(); box.innerHTML=logs.length?logs.map(l=>`<div>${l}</div>`).join(''):'<div class="muted">No logs</div>';}
+function renderData(data){deriveTables(data); CURRENT=data; document.getElementById('title').textContent=`${data.summary?.siteId||'-'} Summary Chart`; document.getElementById('subtitle').textContent=`${data.summary?.group||'-'} · capacity ${num(data.summary?.capacityKw)} kW`; document.getElementById('note').textContent=data.summary?.note||''; const tb=document.getElementById('tbody'); tb.innerHTML=''; for(const r of (data.table||[])){const tr=document.createElement('tr'); tr.innerHTML=`<td>${r.label}</td><td>${r.value}</td>`; tb.appendChild(tr);} renderChart(data); renderTables(); renderLogs();}
+async function load(){ const m=await fetch('/api/meta',{headers:headers()}); const meta=await m.json(); const di=document.getElementById('dateInput'); const qd=new URL(window.location.href).searchParams.get('date'); if(!di.value) di.value=qd||localStorage.getItem('uikit.date')||meta.serverDateKst; const date=di.value; const r=await fetch(`/api/summary?date=${encodeURIComponent(date)}`,{headers:headers()}); if(!r.ok){alert(await r.text()); return;} renderData(await r.json()); }
+function init(){ document.getElementById('roleSel').value=localStorage.getItem('uikit.role')||'viewer'; document.getElementById('nameInput').value=localStorage.getItem('uikit.name')||''; document.getElementById('dateInput').value=localStorage.getItem('uikit.date')||''; document.getElementById('roleSel').onchange=()=>{localStorage.setItem('uikit.role',document.getElementById('roleSel').value); if(CURRENT) renderData(CURRENT)}; document.getElementById('nameInput').onchange=()=>localStorage.setItem('uikit.name',document.getElementById('nameInput').value.trim()); document.getElementById('dateInput').onchange=()=>{localStorage.setItem('uikit.date',document.getElementById('dateInput').value); load();}; document.getElementById('reloadBtn').onclick=load; document.getElementById('exportBtn').onclick=async()=>{const d=document.getElementById('dateInput').value; const r=await fetch(`/api/export.xlsx?date=${encodeURIComponent(d)}`,{headers:headers()}); if(!r.ok){alert('Export failed: '+await r.text()); return;} const b=await r.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`summary_${d}.xlsx`; a.click(); URL.revokeObjectURL(a.href);}; bindHover(); load(); }
+init();
+</script>
+</body>
+</html>

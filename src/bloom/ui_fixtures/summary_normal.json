@@ -1,0 +1,156 @@
+{
+  "scenario": "normal",
+  "summary": {
+    "siteId": "SKK046",
+    "siteName": "Semi-046",
+    "group": "semi",
+    "capacityKw": 19800,
+    "currentKw": 14300,
+    "note": "정상 상태 샘플"
+  },
+  "sites": [
+    {
+      "siteId": "SKK046",
+      "group": "semi",
+      "capacityKw": 19800,
+      "isActive": true,
+      "isCanceled": false
+    },
+    {
+      "siteId": "SKK056",
+      "group": "semi",
+      "capacityKw": 8910,
+      "isActive": false,
+      "isCanceled": false
+    },
+    {
+      "siteId": "KMP000",
+      "group": "non",
+      "capacityKw": 6000,
+      "isActive": false,
+      "isCanceled": false
+    }
+  ],
+  "series": [
+    {
+      "measured_at": "2026-01-01T09:00:00+09:00",
+      "kw": 15000
+    },
+    {
+      "measured_at": "2026-01-01T10:00:00+09:00",
+      "kw": 14800
+    },
+    {
+      "measured_at": "2026-01-01T11:00:00+09:00",
+      "kw": 14600
+    },
+    {
+      "measured_at": "2026-01-01T12:00:00+09:00",
+      "kw": 14500
+    },
+    {
+      "measured_at": "2026-01-01T13:00:00+09:00",
+      "kw": 14450
+    },
+    {
+      "measured_at": "2026-01-01T14:00:00+09:00",
+      "kw": 14400
+    },
+    {
+      "measured_at": "2026-01-01T15:00:00+09:00",
+      "kw": 14350
+    },
+    {
+      "measured_at": "2026-01-01T16:00:00+09:00",
+      "kw": 14300
+    }
+  ],
+  "table": [
+    {
+      "label": "Site ID",
+      "value": "SKK046"
+    },
+    {
+      "label": "Group",
+      "value": "semi"
+    },
+    {
+      "label": "Capacity",
+      "value": "19,800 kW"
+    },
+    {
+      "label": "Current",
+      "value": "14,300 kW"
+    }
+  ],
+  "timeseriesBySiteId": {
+    "SKK046": [
+      {
+        "measured_at": "2026-01-01T09:00:00+09:00",
+        "kw": 15000
+      },
+      {
+        "measured_at": "2026-01-01T10:00:00+09:00",
+        "kw": 14800
+      },
+      {
+        "measured_at": "2026-01-01T11:00:00+09:00",
+        "kw": 14600
+      },
+      {
+        "measured_at": "2026-01-01T12:00:00+09:00",
+        "kw": 14500
+      },
+      {
+        "measured_at": "2026-01-01T13:00:00+09:00",
+        "kw": 14450
+      },
+      {
+        "measured_at": "2026-01-01T14:00:00+09:00",
+        "kw": 14400
+      },
+      {
+        "measured_at": "2026-01-01T15:00:00+09:00",
+        "kw": 14350
+      },
+      {
+        "measured_at": "2026-01-01T16:00:00+09:00",
+        "kw": 14300
+      }
+    ],
+    "SKK056": [
+      {
+        "measured_at": "2026-01-01T09:00:00+09:00",
+        "kw": 13200
+      },
+      {
+        "measured_at": "2026-01-01T10:00:00+09:00",
+        "kw": 13000
+      },
+      {
+        "measured_at": "2026-01-01T11:00:00+09:00",
+        "kw": 12800
+      },
+      {
+        "measured_at": "2026-01-01T12:00:00+09:00",
+        "kw": 12700
+      },
+      {
+        "measured_at": "2026-01-01T13:00:00+09:00",
+        "kw": 12650
+      },
+      {
+        "measured_at": "2026-01-01T14:00:00+09:00",
+        "kw": 12600
+      },
+      {
+        "measured_at": "2026-01-01T15:00:00+09:00",
+        "kw": 12550
+      },
+      {
+        "measured_at": "2026-01-01T16:00:00+09:00",
+        "kw": 12500
+      }
+    ]
+  }
+}

@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Summary UI Kit Preview</title>
+  <style>
+    :root { --bg:#f3f4f6; --card:#fff; --text:#111827; --muted:#6b7280; --line:#e5e7eb; --line-minor:#f1f5f9; --primary:#2563eb; --ok:#059669; --err:#dc2626; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+    .wrap { max-width:1200px; margin:0 auto; padding:16px; display:grid; gap:12px; }
+    .card { background:var(--card); border-radius:12px; padding:14px; box-shadow:0 4px 14px rgba(0,0,0,.06); }
+    .top { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+    .btns,.role-box { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .btn { border:1px solid var(--line); border-radius:16px; padding:6px 10px; cursor:pointer; background:#fff; }
+    .btn.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .muted { color:var(--muted); font-size:12px; }
+    .readonly { color:var(--err); font-size:12px; font-weight:700; }
+    .grid { display:grid; grid-template-columns:1.2fr 1fr; gap:12px; }
+    .chart-wrap { position:relative; }
+    #chart { width:100%; height:240px; }
+    .tooltip { position:absolute; display:none; pointer-events:none; background:#111827; color:#fff; border-radius:8px; font-size:11px; line-height:1.3; padding:6px 8px; white-space:pre-line; transform:translate(8px,-110%); }
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th, td { border-bottom:1px solid var(--line); padding:8px; text-align:left; }
+    td:last-child, th:last-child { text-align:right; }
+    .state-box { text-align:center; padding:28px 8px; color:var(--muted); }
+    .status { min-width:74px; text-align:right; font-size:12px; }
+    .saving { color:#2563eb; }
+    .saved { color:var(--ok); font-weight:700; }
+    .failed { color:var(--err); font-weight:700; }
+    .editable-cell input { width:90px; padding:4px 6px; border:1px solid #d1d5db; border-radius:6px; }
+    .cell-hl { background:#eff6ff; transition: background .8s; }
+    .cell-err { outline: 2px solid var(--err); }
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .logs { max-height:140px; overflow:auto; background:#f9fafb; padding:8px; border-radius:8px; font-size:12px; }
+    @media (max-width:900px){ .grid,.grid2{ grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card top">
+    <div>
+      <strong>Summary UI Preview (/ui-kit)</strong>
+      <div class="muted">PR4: fixture/live toggle + live autosave/export + role-based restrictions</div>
+    </div>
+    <div class="btns">
+      <button class="btn" data-scenario="loading">loading</button>
+      <button class="btn" data-scenario="empty">empty</button>
+      <button class="btn" data-scenario="normal">normal</button>
+      <button class="btn" data-scenario="activeHighCapacity">activeHighCapacity</button>
+    </div>
+    <div class="role-box">
+      <label class="muted">Role
+        <select id="roleSel">
+          <option value="viewer">viewer</option>
+          <option value="supporter">supporter</option>
+          <option value="operator">operator</option>
+        </select>
+      </label>
+      <label class="muted">Name <input id="nameInput" placeholder="optional"/></label>
+      <label class="muted">Data Source
+        <select id="sourceSel">
+          <option value="fixture">fixture</option>
+          <option value="live">live</option>
+        </select>
+      </label>
+      <label class="muted">Date <input id="dateInput" type="date"/></label>
+      <button class="btn" id="reloadBtn">Reload</button>
+      <button class="btn" id="exportBtn">Export .xlsx</button>
+      <span id="readonlyBadge" class="readonly">Read-only</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="top"><strong id="title">Summary Chart</strong><span id="subtitle" class="muted"></span></div>
+      <div class="chart-wrap">
+        <canvas id="chart" width="720" height="240"></canvas>
+        <div id="tooltip" class="tooltip"></div>
+      </div>
+      <div id="stateBox" class="state-box" style="display:none"></div>
+    </div>
+    <div class="card">
+      <strong>Summary Table</strong>
+      <table><tbody id="tbody"></tbody></table>
+      <p class="muted" id="note"></p>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <strong>Semi-central (semi)</strong>
+      <table>
+        <thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>minKw</th><th>maxKw</th><th>cancel</th><th></th></tr></thead>
+        <tbody id="semiBody"></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <strong>Non-central (non)</strong>
+      <table>
+        <thead><tr><th>siteId</th><th>rmccStart</th><th>start</th><th>finish</th><th>baseline0900</th><th>minKw</th><th>cancel</th><th></th></tr></thead>
+        <tbody id="nonBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <strong>System Logs</strong>
+    <div id="logList" class="logs"></div>
+  </div>
+</div>
+<script>
+const defaultScenario = '__SCENARIO__' || 'normal';
+const hoverState = { idx: -1, points: [] };
+let CURRENT = null;
+let DATA_SOURCE = localStorage.getItem('uikit.source') || 'fixture';
+
+function num(v){ return Number(v || 0).toLocaleString('en-US'); }
+function parseToKstMinutes(value){
+  const text=String(value||'');
+  const hhmm=text.match(/T(\d{2}):(\d{2})/) || text.match(/^(\d{2}):(\d{2})$/);
+  if(hhmm) return Number(hhmm[1]) * 60 + Number(hhmm[2]);
+  const d=new Date(text);
+  if(Number.isNaN(d.getTime())) return 0;
+  return d.getUTCHours() * 60 + d.getUTCMinutes();
+}
+function timeLabel(mins){ const h=String(Math.floor(mins/60)).padStart(2,'0'); const m=String(mins%60).padStart(2,'0'); return `${h}:${m}`; }
+function getRole(){ return localStorage.getItem('uikit.role') || 'viewer'; }
+function isOperator(){ return getRole() === 'operator'; }
+
+function normalizeFixture(data){
+  const bySite = data.timeseriesBySiteId && typeof data.timeseriesBySiteId === 'object' ? data.timeseriesBySiteId : null;
+  const normalizedBySite = {};
+  if(bySite){
+    for(const [siteId, points] of Object.entries(bySite)){
+      normalizedBySite[siteId] = (points || []).map(p => ({...p, kw:Number(p.kw||0), mins:parseToKstMinutes(p.measured_at)}))
+        .filter(p => p.mins >= 540 && p.mins <= 1020).sort((a,b)=>a.mins-b.mins);
+    }
+  }
+  const aggregate = (data.series||[]).map(p=>({...p, kw:Number(p.kw||0), mins:parseToKstMinutes(p.measured_at)}))
+    .filter(p=>p.mins>=540 && p.mins<=1020).sort((a,b)=>a.mins-b.mins);
+  return {...data, __normalized:{hasPerSite:!!bySite, perSite:normalizedBySite, aggregate}};
+}
+
+function getActiveSites(data){ return (data.sites||[]).filter(s=>s.isActive===true && s.isCanceled===false); }
+function yMaxBySpec(data){ const act=getActiveSites(data); if(!act.length) return 10000; return Math.ceil(Math.max(...act.map(s=>Number(s.capacityKw||0)))/10000)*10000; }
+function seriesForRender(data){
+  const siteId = data?.summary?.siteId;
+  if(data.__normalized?.hasPerSite) return data.__normalized.perSite[siteId] || [];
+  return []; // per-site mode; legacy series kept for aggregate mode
+}
+
+function drawSeries(data){
+  const canvas = document.getElementById('chart'); const c = canvas.getContext('2d');
+  const w=canvas.width,h=canvas.height,rows={left:52,right:12,top:10,bottom:30};
+  const pw=w-rows.left-rows.right, ph=h-rows.top-rows.bottom, xStart=540, xEnd=1020;
+  c.clearRect(0,0,w,h);
+  const yMin=0,yMax=yMaxBySpec(data),toX=m=>rows.left+((m-xStart)/(xEnd-xStart))*pw,toY=v=>rows.top+(1-((v-yMin)/(yMax-yMin)))*ph;
+
+  for(let m=xStart;m<=xEnd;m+=10){ const x=toX(m),major=(m%60===0); c.strokeStyle=major?'#e5e7eb':'#f1f5f9'; c.beginPath(); c.moveTo(x,rows.top); c.lineTo(x,h-rows.bottom); c.stroke(); if(major){ c.fillStyle='#6b7280'; c.font='11px sans-serif'; c.fillText(timeLabel(m),x-14,h-10);} }
+  c.fillStyle='#6b7280'; c.font='11px sans-serif'; for(let y=0;y<=yMax;y+=10000){ const py=toY(y); c.strokeStyle='#e5e7eb'; c.beginPath(); c.moveTo(rows.left,py); c.lineTo(w-rows.right,py); c.stroke(); c.fillText(String(y),4,py+3); }
+  c.strokeStyle='#9ca3af'; c.beginPath(); c.moveTo(rows.left,rows.top); c.lineTo(rows.left,h-rows.bottom); c.lineTo(w-rows.right,h-rows.bottom); c.stroke();
+
+  const points=[], siteId=data?.summary?.siteId||'-', cap=Number(data?.summary?.capacityKw||0), series=seriesForRender(data);
+  if(series.length<2){ hoverState.points=[]; return; }
+  c.strokeStyle='#2563eb'; c.lineWidth=2; c.beginPath();
+  series.forEach((p,i)=>{const x=toX(p.mins),y=toY(p.kw); points.push({x,y,mins:p.mins,kw:p.kw,siteId,cap}); i?c.lineTo(x,y):c.moveTo(x,y);}); c.stroke();
+  c.fillStyle='#2563eb'; points.forEach(p=>{c.beginPath(); c.arc(p.x,p.y,2.5,0,Math.PI*2); c.fill();});
+  if(hoverState.idx>=0 && hoverState.idx<points.length){ const hp=points[hoverState.idx]; c.strokeStyle='#93c5fd'; c.beginPath(); c.moveTo(hp.x,rows.top); c.lineTo(hp.x,h-rows.bottom); c.stroke(); c.fillStyle='#1d4ed8'; c.beginPath(); c.arc(hp.x,hp.y,4,0,Math.PI*2); c.fill(); }
+  hoverState.points=points;
+}
+
+function bindHover(){
+  const canvas=document.getElementById('chart'), tt=document.getElementById('tooltip');
+  canvas.onmousemove=(e)=>{ const pts=hoverState.points; if(!pts.length) return; const rect=canvas.getBoundingClientRect(); const mx=((e.clientX-rect.left)/rect.width)*canvas.width; let i=0,d=Math.abs(pts[0].x-mx); for(let j=1;j<pts.length;j++){const nd=Math.abs(pts[j].x-mx); if(nd<d){d=nd;i=j;}} hoverState.idx=i; const p=pts[i]; const pct=p.cap>0?` (${((p.kw/p.cap)*100).toFixed(1)}%)`:''; tt.textContent=`${timeLabel(p.mins)}\n${p.siteId} · ${num(p.kw)} kW${pct}`; tt.style.display='block'; tt.style.left=`${(p.x/canvas.width)*rect.width}px`; tt.style.top=`${(p.y/canvas.height)*rect.height}px`; drawSeries(CURRENT||{}); };
+  canvas.onmouseleave=()=>{ hoverState.idx=-1; tt.style.display='none'; drawSeries(CURRENT||{}); };
+}
+
+async function loadFixtureScenario(scenario){
+  const r=await fetch(`/api/ui-kit/summary?scenario=${encodeURIComponent(scenario)}`); if(!r.ok) throw new Error(await r.text()); return r.json();
+}
+
+function getDateValue(){ return document.getElementById('dateInput').value; }
+
+function authHeaders(){
+  const headers = { 'X-User-Role': getRole() };
+  const name = (localStorage.getItem('uikit.name') || '').trim();
+  if(name) headers['X-User-Name'] = name;
+  return headers;
+}
+
+async function loadLiveSummary(){
+  const metaRes = await fetch('/api/meta', { headers: authHeaders() });
+  if(!metaRes.ok) throw new Error(await metaRes.text());
+  const meta = await metaRes.json();
+  const dateInput = document.getElementById('dateInput');
+  if(!dateInput.value) dateInput.value = meta.serverDateKst;
+  const date = dateInput.value || meta.serverDateKst;
+  const url = `/api/summary?date=${encodeURIComponent(date)}`;
+  const sumRes = await fetch(url, { headers: authHeaders() });
+  if(!sumRes.ok) throw new Error(await sumRes.text());
+  const payload = await sumRes.json();
+  payload.scenario = 'live';
+  return payload;
+}
+
+function applyScenarioInUrl(s){ const u=new URL(window.location.href); u.searchParams.set('scenario', s); history.replaceState({}, '', u.toString()); }
+function renderStateOnly(text){ document.getElementById('chart').style.display='none'; document.getElementById('tooltip').style.display='none'; const b=document.getElementById('stateBox'); b.style.display='block'; b.textContent=text; }
+
+function validate(field, value, row){
+  if(['rmccStart','start','finish'].includes(field)){
+    const m=/^(\d{2}):(\d{2})$/.exec(String(value));
+    if(!m) return 'Time format must be HH:mm';
+    const mins=Number(m[1])*60+Number(m[2]);
+    if(mins<540 || mins>1020) return 'Must be within 09:00~17:00';
+    const startVal = field==='start'?value:row.start;
+    const finishVal = field==='finish'?value:row.finish;
+    if(startVal && finishVal){
+      const a=parseToKstMinutes(`2026-01-01T${startVal}:00+09:00`);
+      const b=parseToKstMinutes(`2026-01-01T${finishVal}:00+09:00`);
+      if(a>b) return 'start must be <= finish';
+    }
+  }
+  if(['minKw','maxKw'].includes(field) && value!==''){
+    if(Number.isNaN(Number(value))) return 'Number only';
+  }
+  return null;
+}
+
+async function patchCell(siteId, field, value){
+  const headers = { 'Content-Type':'application/json', ...authHeaders() };
+  if(DATA_SOURCE==='live'){
+    const body = { date:getDateValue() || undefined, siteId, field, value };
+    return fetch('/api/schedule', { method:'PATCH', headers, body: JSON.stringify(body) });
+  }
+  const scenario=CURRENT?.scenario || 'normal';
+  const q=new URLSearchParams({ scenario });
+  return fetch(`/api/ui-kit/schedule?${q.toString()}`, { method:'PATCH', headers, body: JSON.stringify({ siteId, field, value }) });
+}
+
+function statusMark(el, text, cls){ el.className=`status ${cls||''}`; el.textContent=text; }
+
+function renderEditableTables(){
+  const semiBody=document.getElementById('semiBody');
+  const nonBody=document.getElementById('nonBody');
+  semiBody.innerHTML=''; nonBody.innerHTML='';
+  const roleOp=isOperator();
+  document.getElementById('readonlyBadge').style.display = roleOp ? 'none' : 'inline';
+
+  const makeRow=(row, isSemi)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td>${row.siteId}</td>
+      <td class="editable-cell"><input data-field="rmccStart" value="${row.rmccStart||''}" ${roleOp?'':'readonly'} /></td>
+      <td class="editable-cell"><input data-field="start" value="${row.start||''}" ${roleOp?'':'readonly'} /></td>
+      <td class="editable-cell"><input data-field="finish" value="${row.finish||''}" ${roleOp?'':'readonly'} /></td>
+      ${isSemi?`<td class="editable-cell"><input data-field="minKw" value="${row.minKw ?? ''}" ${roleOp?'':'readonly'} /></td><td class="editable-cell"><input data-field="maxKw" value="${row.maxKw ?? ''}" ${roleOp?'':'readonly'} /></td>`:`<td>${row.baselineKw0900 ?? '—'}</td><td class="editable-cell"><input data-field="minKw" value="${row.minKw ?? ''}" ${roleOp?'':'readonly'} /></td>`}
+      <td><button data-field="isCanceled" ${roleOp?'':'disabled'}>${row.isCanceled ? 'Canceled' : 'Active'}</button></td>
+      <td class="status"></td>
+    `;
+
+    const statusEl=tr.querySelector('.status');
+    tr.querySelectorAll('input[data-field]').forEach(input=>{
+      input.onkeydown=async(e)=>{
+        if(e.key!=='Enter') return;
+        if(!roleOp) return;
+        const field=input.dataset.field;
+        const oldVal=row[field] ?? '';
+        const newVal=input.value.trim();
+        const err=validate(field,newVal,row);
+        if(err){
+          input.classList.add('cell-err');
+          statusMark(statusEl,'Failed','failed');
+          return;
+        }
+        input.classList.remove('cell-err');
+        if(String(oldVal)===String(newVal)){ statusMark(statusEl,'',''); return; }
+        statusMark(statusEl,'Saving…','saving');
+        const res=await patchCell(row.siteId,field,newVal);
+        if(!res.ok){ statusMark(statusEl,'Failed','failed'); input.classList.add('cell-err'); return; }
+        const body=await res.json();
+        row[field]=newVal;
+        input.parentElement.classList.add('cell-hl');
+        setTimeout(()=>input.parentElement.classList.remove('cell-hl'),800);
+        statusMark(statusEl,'Saved ✓','saved');
+        setTimeout(()=>statusMark(statusEl,'',''),1300);
+        if(body.logLine){
+          const logs=CURRENT.systemLogs || (CURRENT.systemLogs=[]);
+          logs.push(body.logLine);
+          renderLogs();
+        }
+        if(field==='isCanceled' || field==='minKw' || field==='maxKw') renderData(CURRENT);
+      };
+    });
+
+    const cancelBtn=tr.querySelector('button[data-field="isCanceled"]');
+    cancelBtn.onclick=async()=>{
+      if(!roleOp) return;
+      statusMark(statusEl,'Saving…','saving');
+      const next = !row.isCanceled;
+      const res=await patchCell(row.siteId,'isCanceled',next);
+      if(!res.ok){ statusMark(statusEl,'Failed','failed'); return; }
+      const body=await res.json();
+      row.isCanceled = next;
+      cancelBtn.textContent = next ? 'Canceled' : 'Active';
+      statusMark(statusEl,'Saved ✓','saved');
+      setTimeout(()=>statusMark(statusEl,'',''),1300);
+      if(body.logLine){ (CURRENT.systemLogs||(CURRENT.systemLogs=[])).push(body.logLine); renderLogs(); }
+      for(const s of (CURRENT.sites||[])) if(s.siteId===row.siteId) s.isCanceled = next;
+      renderData(CURRENT);
+    };
+
+    return tr;
+  };
+
+  (CURRENT.semiTable||[]).forEach(r=>semiBody.appendChild(makeRow(r,true)));
+  (CURRENT.nonTable||[]).forEach(r=>nonBody.appendChild(makeRow(r,false)));
+}
+
+function renderLogs(){
+  const box=document.getElementById('logList');
+  const logs=(CURRENT?.systemLogs||[]).slice().reverse();
+  box.innerHTML=logs.length?logs.map(l=>`<div>${l}</div>`).join(''):'<div class="muted">No logs</div>';
+}
+
+function deriveTables(data){
+  if(data.semiTable && data.nonTable) return;
+  const semi=[], non=[];
+  for(const s of (data.sites||[])){
+    const row={ siteId:s.siteId, rmccStart:'09:00', start:'09:20', finish:'10:20', minKw:5000, isCanceled:!!s.isCanceled };
+    if(s.group==='semi') semi.push({ ...row, maxKw:10000 });
+    else non.push({ ...row, baselineKw0900:1200 });
+  }
+  data.semiTable = semi;
+  data.nonTable = non;
+}
+
+function renderData(data){
+  const normalizedData = normalizeFixture(data);
+  deriveTables(normalizedData);
+  CURRENT = normalizedData;
+  const scenario = normalizedData.scenario || 'normal';
+  document.querySelectorAll('.btn[data-scenario]').forEach(b=>b.classList.toggle('active', DATA_SOURCE==='fixture' && b.dataset.scenario===scenario));
+  applyScenarioInUrl(scenario);
+
+  const summary = normalizedData.summary || {};
+  document.getElementById('title').textContent = `${summary.siteId || '-'} Summary Chart`;
+  document.getElementById('subtitle').textContent = `${summary.group || '-'} · capacity ${num(summary.capacityKw)} kW`;
+  document.getElementById('note').textContent = summary.note || '';
+
+  const tbody=document.getElementById('tbody');
+  tbody.innerHTML='';
+  for(const row of (normalizedData.table || [])){
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td>${row.label}</td><td>${row.value}</td>`;
+    tbody.appendChild(tr);
+  }
+
+  if(scenario==='loading') return renderStateOnly('Loading...');
+  if(scenario==='empty') return renderStateOnly('No data to display.');
+  if(getActiveSites(normalizedData).length === 0) return renderStateOnly('No active sites. (yMax=10000 fallback)');
+
+  document.getElementById('stateBox').style.display='none';
+  document.getElementById('chart').style.display='block';
+  drawSeries(normalizedData);
+  renderEditableTables();
+  renderLogs();
+}
+
+async function reloadCurrent(){
+  if(DATA_SOURCE==='live'){
+    renderData(await loadLiveSummary());
+    return;
+  }
+  const fromUrl = new URL(window.location.href).searchParams.get('scenario');
+  const scenario = fromUrl || defaultScenario || 'normal';
+  renderData(await loadFixtureScenario(scenario));
+}
+
+function initRoleUi(){
+  const roleSel=document.getElementById('roleSel');
+  const nameInput=document.getElementById('nameInput');
+  const sourceSel=document.getElementById('sourceSel');
+  const dateInput=document.getElementById('dateInput');
+  const reloadBtn=document.getElementById('reloadBtn');
+  const exportBtn=document.getElementById('exportBtn');
+  roleSel.value = localStorage.getItem('uikit.role') || 'viewer';
+  nameInput.value = localStorage.getItem('uikit.name') || '';
+  sourceSel.value = DATA_SOURCE;
+  dateInput.value = localStorage.getItem('uikit.date') || '';
+
+  roleSel.onchange=()=>{ localStorage.setItem('uikit.role', roleSel.value); if(CURRENT) renderData(CURRENT); };
+  nameInput.onchange=()=>{ localStorage.setItem('uikit.name', nameInput.value.trim()); };
+  sourceSel.onchange=async()=>{ DATA_SOURCE=sourceSel.value; localStorage.setItem('uikit.source', DATA_SOURCE); await reloadCurrent(); };
+  dateInput.onchange=()=>{ localStorage.setItem('uikit.date', dateInput.value); if(DATA_SOURCE==='live') reloadCurrent(); };
+  reloadBtn.onclick=()=>reloadCurrent();
+  exportBtn.onclick=()=>{
+    if(DATA_SOURCE!=='live') return;
+    const date = getDateValue();
+    const url = `/api/export.xlsx?date=${encodeURIComponent(date||'')}`;
+    fetch(url,{headers:authHeaders()}).then(async r=>{
+      if(!r.ok){ alert('Export failed: '+(await r.text())); return; }
+      const blob=await r.blob();
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=`summary_${date||'export'}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+  };
+}
+
+async function boot(){
+  await reloadCurrent();
+}
+
+document.querySelectorAll('.btn[data-scenario]').forEach(btn=>{
+  btn.onclick = async ()=>{ if(DATA_SOURCE!=='fixture') return; renderData(await loadFixtureScenario(btn.dataset.scenario)); };
+});
+
+bindHover();
+initRoleUi();
+boot();
+</script>
+</body>
+</html>
